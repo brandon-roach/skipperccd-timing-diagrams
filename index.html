@@ -87,7 +87,7 @@
 
                 // 2. Parse XML DOM
                 const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                const xmlDoc = parser.parseFromString(safexmlText, "text/xml");
                 
                 const stateDict = {};
                 Array.from(xmlDoc.querySelectorAll("variables state")).forEach(el => {
