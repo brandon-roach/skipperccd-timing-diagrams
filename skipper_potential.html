@@ -176,27 +176,27 @@
             path.transition(t).attr("d", lineGen(pts));
 
 	    // Dynamic Charge Tracking (Explicit State Routing)
+// Dynamic Charge Tracking (The Sloshing Mechanic)
             let targetX, targetY, opacity = 1;
 
-            if (state.id.includes("8B") || state.id === "STATE_8") {
-                // Charge is held upstream in H3. 
-                // Keep it off-screen/invisible during the pedestal measurement.
-                targetX = sectionWidth * 0.5; 
-                targetY = yScale(-2.5); 
-                opacity = 0; 
+            if (state.id.includes("8B") || state.id === "STATE_8" || state.id.includes("10RG")) {
+                // First Retreat: Charge is hiding in the Output Gate (-8V).
+                // The Sense Node (-7V) is completely empty for the Pedestal read.
+                targetX = sectionWidth * 1.5; 
+                targetY = yScale(state.og + 0.5);
             } 
             else if (state.id.includes("8C") || state.id.includes("9")) {
-                // Caught and resting in the deep Summing Well
+                // Second Retreat: Charge is sucked all the way back into the deep Summing Well (-10V).
                 targetX = sectionWidth * 0.5; 
                 targetY = yScale(state.sw + 0.5);
             } 
             else if (state.id.includes("10A") || state.id.includes("10RB") || state.id.includes("10B")) {
-                // Dumped and squeezed onto the Sense Node for signal measurement
+                // The Shove: Squeezed fully onto the Sense Node for the Signal read.
                 targetX = sectionWidth * 2.5; 
                 targetY = yScale(state.sn + 0.5);
             } 
-            else if (state.id.includes("10RG") || state.dg === -10) {
-                // Flushed through the Dump Gate into the Drain
+            else if (state.dg === -10) {
+                // The True Flush (Only happens outside the skipper loop in STATE_3DG)
                 targetX = sectionWidth * 4.5; 
                 targetY = yScale(state.drain); 
                 opacity = 0;
