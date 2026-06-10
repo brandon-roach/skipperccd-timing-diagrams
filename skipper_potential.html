@@ -122,10 +122,9 @@
                     return {
                         id: id,
                         timer: step.getAttribute("delay"),
-                        sw: valStr.includes("SWA") ? v.sl : v.sh, 
-                        // OGA Present = Shallow (-4V) to let charge pass
-                        // OGA Missing = Deep (-8V) to suck charge backward during reset
-                        og: valStr.includes("OGA") ? v.oh : v.ol, 
+			// Universal Polarity: Present = Barrier, Missing = Trench
+                        sw: valStr.includes("SWA") ? v.sh : v.sl, 
+                        og: valStr.includes("OGA") ? v.oh : v.ol,
                         sn: v.vr || -7, // SN is a static baseline for the others to dance around
                         dg: valStr.includes("DGA") ? v.dh : v.dl, 
                         drain: v.vdrain || -24, 
@@ -174,35 +173,33 @@
             const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
             path.transition(t).attr("d", lineGen(pts));
 
-            // Dynamic Charge Tracking (The Sloshing Mechanic)
+	    // True Thermodynamic Charge Routing
+            // The charge naturally falls to the deepest available well
             let targetX, targetY, opacity = 1;
 
-            if (state.id.includes("10RB") || state.id.includes("10RG") || state.id.includes("8B") || state.id === "STATE_8") {
-                // Retreat 1: Hiding in the deep Output Gate (-8V) during Reset & Pedestal
-                targetX = sectionWidth * 1.5; 
-                targetY = yScale(state.og + 0.5);
-            } 
-            else if (state.id.includes("8C") || state.id.includes("9")) {
-                // Retreat 2: Sucked all the way back into the deep Summing Well (-10V)
-                targetX = sectionWidth * 0.5; 
-                targetY = yScale(state.sw + 0.5);
-            } 
-            else if (state.id.includes("10A") || state.id.includes("10B")) {
-                // The Shove: Squeezed fully onto the Sense Node (-7V) for the Signal read
-                targetX = sectionWidth * 2.5; 
-                targetY = yScale(state.sn + 0.5);
-            } 
-            else if (state.dg < -5) { 
-                // The Flush: Down the drain
+            const activeRegion = [
+                { id: "sw", val: state.sw, x: sectionWidth * 0.5 },
+                { id: "og", val: state.og, x: sectionWidth * 1.5 },
+                { id: "sn", val: state.sn, x: sectionWidth * 2.5 }
+            ];
+            
+            // Sort to find the most negative potential
+            activeRegion.sort((a, b) => a.val - b.val);
+            let deepest = activeRegion[0];
+
+            if (state.dg < -5) { 
+                // The Flush
                 targetX = sectionWidth * 4.5; 
                 targetY = yScale(state.drain); 
                 opacity = 0;
+            } else {
+                targetX = deepest.x; 
+                targetY = yScale(deepest.val + 0.5);
             }
 
             chargePacket.transition(t)
                 .attr("transform", `translate(${targetX}, ${targetY})`)
                 .style("opacity", opacity);
-
             // Button state controls
             document.getElementById("prev-btn").disabled = currentState === 0;
             document.getElementById("next-btn").disabled = currentState === parsedSequence.length - 1;
