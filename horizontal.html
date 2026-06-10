@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>1D Skipper CCD Horizontal Transfer</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            padding-top: 40px;
+            margin: 0;
+        }
+
+        .visualizer-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 900px;
+        }
+
+        h2 { margin-top: 0; margin-bottom: 5px; }
+        p.subtitle { color: #666; margin-bottom: 20px; font-size: 0.95em; }
+
+        .controls {
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+        }
+
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+            background: #0056b3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        button:hover { background: #004494; }
+        button:disabled { background: #cccccc; cursor: not-allowed; }
+
+        .state-badge {
+            font-family: monospace;
+            font-size: 1.3em;
+            background: #e9ecef;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            min-width: 140px;
+        }
+
+        /* Gate Topography */
+        .gate-high { fill: #dee2e6; stroke: #adb5bd; stroke-width: 2px;} /* Shallow Barrier */
+        .gate-low { fill: #c5e1a5; stroke: #7cb342; stroke-width: 2px;}  /* Deep Trench */
+        .drain { fill: #ffe0b2; stroke: #fb8c00; stroke-width: 2px;} /* Permanent Sinks */
+        
+        .charge-packet { fill: #e63946; }
+        .trash-packet { fill: #555555; } /* Old pixel being flushed */
+
+        .gate-label { font-family: monospace; font-size: 14px; fill: #444; font-weight: bold; pointer-events: none;}
+        .drain-label { font-family: monospace; font-size: 12px; fill: #d84315; font-weight: bold; pointer-events: none;}
+    </style>
+</head>
+<body>
+
+    <div class="visualizer-container">
+        <h2>Horizontal Clocking & Reset Flush</h2>
+        <p class="subtitle">Executing <strong>recipe name="horizontal_12"</strong></p>
+        <div class="controls">
+            <button id="btn-prev" disabled>◀ Previous</button>
+            <span id="state-label" class="state-badge">Loading XML...</span>
+            <button id="btn-next" disabled>Next ▶</button>
+        </div>
+        <div id="horizontal-canvas"></div>
+    </div>
+
+    <script>
+        const width = 850;
+        const height = 300;
+        const gateWidth = width / 9; // 9 total gates in the 1D path
+        const gateHeight = 100;
+        const baseY = 80;
+
+        let sequence = [];
+        let currentStateIndex = 0;
+
+        const svg = d3.select("#horizontal-canvas")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        // Define the physical gate layout (Left to Right)
+        const gateDefs = [
+            { id: 'H1_1', type: 'H1', label: 'H1', x: 0 * gateWidth, pixel: 1 },
+            { id: 'H2_1', type: 'H2', label: 'H2', x: 1 * gateWidth, pixel: 1 },
+            { id: 'H3_1', type: 'H3', label: 'H3', x: 2 * gateWidth, pixel: 1 },
+            { id: 'H1_2', type: 'H1', label: 'H1', x: 3 * gateWidth, pixel: 2 },
+            { id: 'H2_2', type: 'H2', label: 'H2', x: 4 * gateWidth, pixel: 2 },
+            { id: 'H3_2', type: 'H3', label: 'H3', x: 5 * gateWidth, pixel: 2 },
+            { id: 'SW',   type: 'SW', label: 'SW', x: 6 * gateWidth, pixel: 3 },
+            { id: 'OG',   type: 'OG', label: 'OG', x: 7 * gateWidth, pixel: 3 },
+            { id: 'SN',   type: 'SN', label: 'SN', x: 8 * gateWidth, pixel: 3 }
+        ];
+
+        // Draw Main Path Gates
+        const gates = svg.selectAll(".main-gate")
+            .data(gateDefs)
+            .enter()
+            .append("rect")
+            .attr("class", "main-gate gate-high") // Default state
+            .attr("x", d => d.x)
+            .attr("y", baseY)
+            .attr("width", gateWidth)
+            .attr("height", gateHeight)
+            .attr("rx", 4);
+
+        // Draw Labels
+        svg.selectAll(".gate-label")
+            .data(gateDefs)
+            .enter()
+            .append("text")
+            .attr("class", "gate-label")
+            .attr("x", d => d.x + (gateWidth / 2))
+            .attr("y", baseY + (gateHeight / 2) + 5)
+            .attr("text-anchor", "middle")
+            .text(d => d.label);
+
+        // Draw Drains (DG and RG)
+        const dgX = 6 * gateWidth;
+        const dgY = baseY + gateHeight + 10;
+        const rgX = 8 * gateWidth;
+        const rgY = baseY + gateHeight + 10;
+
+        const drains = svg.selectAll(".drain-gate")
+            .data([
+                { id: 'DG', x: dgX, y: dgY, label: "Dump Drain" },
+                { id: 'RG', x: rgX, y: rgY, label: "Reset Drain" }
+            ])
+            .enter().append("g");
+
+        drains.append("rect")
+            .attr("id", d => d.id)
+            .attr("class", "drain gate-high")
+            .attr("x", d => d.x)
+            .attr("y", d => d.y)
+            .attr("width", gateWidth)
+            .attr("height", 60)
+            .attr("rx", 4);
+            
+        drains.append("text")
+            .attr("class", "drain-label")
+            .attr("x", d => d.x + (gateWidth / 2))
+            .attr("y", d => d.y + 35)
+            .attr("text-anchor", "middle")
+            .text(d => d.label);
+
+        // Initialize Charge Packets
+        const chargeGroups = svg.selectAll(".charge-group")
+            .data([
+                { id: 'packet1', type: 'new', colorClass: 'charge-packet' }, // Incoming pixel
+                { id: 'packet2', type: 'new', colorClass: 'charge-packet' }, // Pixel handing off to SW
+                { id: 'trash', type: 'old', colorClass: 'trash-packet' }     // Old pixel being flushed
+            ])
+            .enter().append("g")
+            .attr("class", "charge-group");
+
+        chargeGroups.each(function(d) {
+            const g = d3.select(this);
+            g.append("circle").attr("cx", -8).attr("cy", -8).attr("r", 6).attr("class", d.colorClass);
+            g.append("circle").attr("cx", 8).attr("cy", -8).attr("r", 6).attr("class", d.colorClass);
+            g.append("circle").attr("cx", 0).attr("cy", 8).attr("r", 6).attr("class", d.colorClass);
+        });
+
+        // Dynamic File Loader
+        async function loadSequencerData() {
+            try {
+                const response = await fetch('sequencer_simple_qis.xml');
+                if (!response.ok) throw new Error("Could not load XML file.");
+                const xmlText = await response.text();
+                
+                // Wrap in root to prevent parser panic
+                const safeXmlText = `<root>${xmlText}</root>`;
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(safeXmlText, "text/xml");
+
+                const stateDict = {};
+                const stateNodes = xmlDoc.querySelectorAll("state");
+                stateNodes.forEach(node => {
+                    const name = node.getAttribute("name");
+                    const val = node.getAttribute("val");
+                    if (name && val) stateDict[name] = val;
+                });
+
+                const horizontalRecipe = xmlDoc.querySelector("recipe[name='horizontal_12']");
+                if (!horizontalRecipe) throw new Error("Could not find horizontal_12 recipe.");
+                const steps = horizontalRecipe.querySelectorAll("step");
+                
+                steps.forEach(step => {
+                    const stateName = step.getAttribute("state");
+                    const bitString = stateDict[stateName] || "";
+
+                    // Decode Active-High Logic
+                    sequence.push({
+                        id: stateName,
+                        h1: bitString.includes("H1A") ? "high" : "low",
+                        h2: bitString.includes("H2C") ? "high" : "low",
+                        h3: bitString.includes("H3A") ? "high" : "low",
+                        sw: bitString.includes("SWA") ? "high" : "low",
+                        og: bitString.includes("OGA") ? "high" : "low",
+                        dg: bitString.includes("DGA") ? "high" : "low", // Dump Gate
+                        rg: bitString.includes("RGA") ? "high" : "low", // Reset Gate
+                        sn: "low" // Sense node is permanently deep unless clamped
+                    });
+                });
+
+                if(sequence.length > 0) {
+                    document.getElementById("btn-prev").disabled = false;
+                    document.getElementById("btn-next").disabled = false;
+                    updateViz();
+                }
+
+            } catch (error) {
+                console.error("Initialization failed:", error);
+                document.getElementById("state-label").textContent = "XML ERROR";
+                document.getElementById("state-label").style.backgroundColor = "#ffcccc";
+            }
+        }
+
+        // Topographical Wave Math
+        function getPhaseX(h1, h2, h3, baseCol) {
+            let col = 0;
+            if (h2 === "low" && h3 === "high") col = 1; // H2
+            else if (h2 === "low" && h3 === "low") col = 1.5; // Spread H2-H3
+            else if (h2 === "high" && h3 === "low" && h1 === "high") col = 2; // H3
+            else if (h3 === "low" && h1 === "low") col = 2.5; // Spread H3-H1(next)
+            else if (h3 === "high" && h1 === "low") col = 3; // H1(next)
+            else if (h1 === "low" && h2 === "low") col = 3.5; // Spread H1-H2
+            else col = 1; // Default
+            
+            return (baseCol + col) * gateWidth + (gateWidth / 2);
+        }
+
+        function updateViz() {
+            if(sequence.length === 0) return; 
+            const state = sequence[currentStateIndex];
+            d3.select("#state-label").text(state.id);
+
+            // 1. Color the Gates
+            gates.attr("class", d => {
+                if (d.type === 'H1') return `main-gate gate-${state.h1}`;
+                if (d.type === 'H2') return `main-gate gate-${state.h2}`;
+                if (d.type === 'H3') return `main-gate gate-${state.h3}`;
+                if (d.type === 'SW') return `main-gate gate-${state.sw}`;
+                if (d.type === 'OG') return `main-gate gate-${state.og}`;
+                if (d.type === 'SN') return `main-gate gate-low`; // Always trench
+            });
+
+            d3.select("#DG").attr("class", `drain gate-${state.dg}`);
+            d3.select("#RG").attr("class", `drain gate-${state.rg}`);
+
+            // 2. Route the Charge
+            const defaultY = baseY + (gateHeight / 2);
+
+            chargeGroups.transition().duration(400).ease(d3.easeCubicInOut)
+                .attr("transform", d => {
+                    let tX, tY = defaultY;
+                    let opacity = 1;
+
+                    if (d.id === 'packet1') {
+                        // Pixel 1 clocking
+                        tX = getPhaseX(state.h1, state.h2, state.h3, 0);
+                    } 
+                    else if (d.id === 'packet2') {
+                        // Pixel 2 handing off to SW
+                        if (state.h2 === "low" && state.h3 === "high") tX = 4 * gateWidth + (gateWidth / 2); // H2
+                        else if (state.h2 === "low" && state.h3 === "low") tX = 4.5 * gateWidth + (gateWidth / 2); // H2-H3
+                        else if (state.h2 === "high" && state.h3 === "low" && state.sw === "high") tX = 5 * gateWidth + (gateWidth / 2); // H3
+                        else if (state.h3 === "low" && state.sw === "low") tX = 5.5 * gateWidth + (gateWidth / 2); // H3-SW Handoff!
+                        else if (state.h3 === "high" && state.sw === "low") tX = 6 * gateWidth + (gateWidth / 2); // Locked in SW
+                        else tX = 6 * gateWidth + (gateWidth / 2); // Default to SW at end
+                    }
+                    else if (d.id === 'trash') {
+                        // Old pixel garbage disposal
+                        if (state.id === "STATE_9" || state.id === "STATE_3DG" || state.id === "STATE_4" || state.id === "STATE_5" || state.id === "STATE_6" || state.id === "STATE_7" || state.id === "STATE_8") {
+                            // Squeezed onto Sense Node by SW and OG high barriers
+                            tX = 8 * gateWidth + (gateWidth / 2); // SN
+                        } else if (state.id === "STATE_10RG") {
+                            // RG drops low (ON), flushes charge
+                            tX = 8 * gateWidth + (gateWidth / 2);
+                            tY = rgY + 30; // Drop into Reset Drain
+                            opacity = 0; // Fade out as it leaves the silicon
+                        } else {
+                            tX = 6 * gateWidth + (gateWidth / 2); // Start in SW
+                        }
+                    }
+
+                    return `translate(${tX}, ${tY}) scale(${opacity})`;
+                })
+                .style("opacity", d => (d.id === 'trash' && state.id === "STATE_10RG") ? 0 : 1);
+        }
+
+        d3.select("#btn-next").on("click", () => {
+            if(sequence.length === 0) return;
+            currentStateIndex = (currentStateIndex + 1) % sequence.length;
+            updateViz();
+        });
+
+        d3.select("#btn-prev").on("click", () => {
+            if(sequence.length === 0) return;
+            currentStateIndex = (currentStateIndex - 1 + sequence.length) % sequence.length;
+            updateViz();
+        });
+
+        loadSequencerData();
+    </script>
+</body>
+</html>
