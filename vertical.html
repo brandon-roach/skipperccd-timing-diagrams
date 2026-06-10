@@ -44,6 +44,7 @@
         }
 
         button:hover { background: #004494; }
+        button:disabled { background: #cccccc; cursor: not-allowed; }
 
         .state-badge {
             font-family: monospace;
@@ -52,17 +53,17 @@
             padding: 6px 12px;
             border-radius: 4px;
             font-weight: bold;
-            min-width: 100px;
+            min-width: 120px;
         }
 
         /* Silicon Topography Classes */
         .gate-high {
-            fill: #dee2e6; /* Shallow barrier */
+            fill: #dee2e6; /* Shallow barrier (light gray) */
             stroke: #adb5bd;
         }
 
         .gate-low {
-            fill: #c5e1a5; /* Deep trench */
+            fill: #c5e1a5; /* Deep trench (light green) */
             stroke: #7cb342;
         }
 
@@ -76,9 +77,9 @@
     <div class="visualizer-container">
         <h2>Vertical Clocking (3-Phase)</h2>
         <div class="controls">
-            <button id="btn-prev">◀ Previous</button>
-            <span id="state-label" class="state-badge">STATE_11</span>
-            <button id="btn-next">Next ▶</button>
+            <button id="btn-prev" disabled>◀ Previous</button>
+            <span id="state-label" class="state-badge">Loading XML...</span>
+            <button id="btn-next" disabled>Next ▶</button>
         </div>
         <div id="vertical-canvas"></div>
     </div>
@@ -94,23 +95,92 @@
         const pixelHeight = (height - 120) / rows; // Leave room for TG and H-Reg
         const gateHeight = pixelHeight / 3;
 
-        // The 6-step vertical sequence from your XML
-let sequence = [];
+        let sequence = [];
         let currentStateIndex = 0;
+
+        // Setup SVG
+        const svg = d3.select("#vertical-canvas")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        // Draw the Grid Elements (Background)
+        const gridData = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                let yOffset = r * pixelHeight;
+                let xOffset = c * pixelWidth;
+                gridData.push({ type: 'V1', row: r, col: c, x: xOffset, y: yOffset, h: gateHeight });
+                gridData.push({ type: 'V2', row: r, col: c, x: xOffset, y: yOffset + gateHeight, h: gateHeight });
+                gridData.push({ type: 'V3', row: r, col: c, x: xOffset, y: yOffset + (gateHeight * 2), h: gateHeight });
+            }
+        }
+
+        // Add Transfer Gate (TG) and Horizontal Register (H-Reg)
+        const tgY = rows * pixelHeight;
+        const hY = tgY + 40;
+        gridData.push({ type: 'TG', row: 'bottom', col: 0, x: 0, y: tgY, w: width, h: 40 });
+        gridData.push({ type: 'H',  row: 'bottom', col: 0, x: 0, y: hY, w: width, h: 60 });
+
+        const gates = svg.selectAll(".gate")
+            .data(gridData)
+            .enter()
+            .append("rect")
+            .attr("class", "gate gate-high") // Default to high before load
+            .attr("x", d => d.x)
+            .attr("y", d => d.y)
+            .attr("width", d => d.w || pixelWidth)
+            .attr("height", d => d.h);
+
+        // Add Gate Labels
+        svg.selectAll(".label")
+            .data(gridData)
+            .enter()
+            .append("text")
+            .attr("x", d => d.x + (d.w || pixelWidth) / 2)
+            .attr("y", d => d.y + d.h / 2 + 4)
+            .attr("text-anchor", "middle")
+            .style("font-size", "12px")
+            .style("font-family", "monospace")
+            .style("fill", "#555")
+            .text(d => d.type === 'TG' ? "Transfer Gate (TG)" : d.type === 'H' ? "Horizontal Register" : d.type);
+
+        // Initialize Charge Packets (One per pixel)
+        const charges = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                charges.push({ id: `charge-${r}-${c}`, row: r, col: c });
+            }
+        }
+
+        const chargeGroup = svg.selectAll(".charge-group")
+            .data(charges)
+            .enter()
+            .append("g")
+            .attr("class", "charge-group")
+            .attr("transform", d => `translate(${(d.col * pixelWidth) + (pixelWidth / 2)}, ${(d.row * pixelHeight) + (gateHeight * 1.5)})`); // Initial default position
+
+        // Draw a cluster of 3 "holes" to represent the packet
+        chargeGroup.each(function() {
+            const g = d3.select(this);
+            g.append("circle").attr("cx", -6).attr("cy", -6).attr("r", 5).attr("class", "charge-packet");
+            g.append("circle").attr("cx", 6).attr("cy", -6).attr("r", 5).attr("class", "charge-packet");
+            g.append("circle").attr("cx", 0).attr("cy", 6).attr("r", 5).attr("class", "charge-packet");
+        });
 
         // The dynamic file loader
         async function loadSequencerData() {
             try {
-                // 1. Fetch the XML file (Requires a local web server to bypass CORS)
+                // Fetch the XML file
                 const response = await fetch('sequencer_simple_qis.xml');
-                if (!response.ok) throw new Error("Could not load XML file. Are you running a local web server?");
+                if (!response.ok) throw new Error("Could not load XML file.");
                 const xmlText = await response.text();
 
-                // 2. Parse the XML string into a navigable DOM object
+                // Parse the XML string into a navigable DOM object
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlText, "text/xml");
 
-                // 3. Build a dictionary of all state definitions
+                // Build a dictionary of all state definitions
                 const stateDict = {};
                 const stateNodes = xmlDoc.querySelectorAll("state");
                 stateNodes.forEach(node => {
@@ -121,19 +191,18 @@ let sequence = [];
                     }
                 });
 
-                // 4. Extract the vertical recipe
+                // Extract the vertical recipe
                 const verticalRecipe = xmlDoc.querySelector("recipe[name='vertical']");
                 if (!verticalRecipe) throw new Error("Could not find <recipe name='vertical'> in XML.");
                 
                 const steps = verticalRecipe.querySelectorAll("step");
                 
-                // 5. Decode the thermodynamics dynamically
+                // Decode the thermodynamics dynamically
                 steps.forEach(step => {
                     const stateName = step.getAttribute("state");
                     const bitString = stateDict[stateName] || "";
 
-                    // Active-High Logic: If the bit is present, it's a "high" barrier.
-                    // If the bit is missing, it drops into a "low" trench.
+                    // Active-High Logic mapping
                     sequence.push({
                         id: stateName,
                         v1: (bitString.includes("V1A") || bitString.includes("V1B")) ? "high" : "low",
@@ -144,28 +213,22 @@ let sequence = [];
                     });
                 });
 
-                // 6. Start the visualizer now that data is loaded
+                // Start the visualizer
                 if(sequence.length > 0) {
+                    document.getElementById("btn-prev").disabled = false;
+                    document.getElementById("btn-next").disabled = false;
                     updateViz();
                 }
 
             } catch (error) {
                 console.error("Initialization failed:", error);
-                document.getElementById("state-label").text = "ERROR LOADING XML";
+                document.getElementById("state-label").textContent = "XML ERROR";
                 document.getElementById("state-label").style.backgroundColor = "#ffcccc";
             }
         }
 
-        // Setup SVG canvas
-        const svg = d3.select("#vertical-canvas")
-            .append("svg")
-            .attr("width", width)
-            .attr("height", height);
-
-        // ... [KEEP ALL THE SVG DRAWING LOGIC FOR GATES AND CHARGES HERE] ...
-
         function updateViz() {
-            if(sequence.length === 0) return; // Guard against uninitialized data
+            if(sequence.length === 0) return; 
             
             const state = sequence[currentStateIndex];
             d3.select("#state-label").text(state.id);
@@ -187,16 +250,14 @@ let sequence = [];
                     let currentPixelBaseY = d.row * pixelHeight;
                     let nextPixelBaseY = (d.row + 1) * pixelHeight;
 
-                    // Dynamic Topographical wave routing based purely on decoded gate states
-                    // We map the physical conditions rather than hardcoding the state names.
-                    
+                    // Dynamic Topographical wave routing based on physical gate states
                     if (state.v2 === "low" && state.v3 === "high") {
                         targetY = currentPixelBaseY + (gateHeight * 1.5); // Centered in V2
                     } else if (state.v2 === "low" && state.v3 === "low") {
                         targetY = currentPixelBaseY + (gateHeight * 2);   // Spreading V2-V3
                     } else if (state.v2 === "high" && state.v3 === "low" && state.v1 === "high") {
                         targetY = currentPixelBaseY + (gateHeight * 2.5); // Squeezed in V3
-                    } else if (state.v3 === "low" && state.v1 === "low") { // V1 is next pixel's V1
+                    } else if (state.v3 === "low" && state.v1 === "low") { 
                         if (d.row === rows - 1) {
                             targetY = tgY + 20; // Bottom row spreading to TG
                         } else {
@@ -210,12 +271,12 @@ let sequence = [];
                         }
                     } else if (state.v1 === "low" && state.v2 === "low") {
                         if (d.row === rows - 1) {
-                            targetY = hY + 30; // Bottom row dumped into H-Reg!
+                            targetY = hY + 30; // Bottom row dumped into H-Reg
                         } else {
                             targetY = nextPixelBaseY + gateHeight; // Spreading V1(next) to V2(next)
                         }
                     } else {
-                         // Default fallback if a state breaks the standard logic
+                         // Fallback logic
                          targetY = currentPixelBaseY + gateHeight; 
                     }
                     return `translate(${targetX}, ${targetY})`;
@@ -236,94 +297,7 @@ let sequence = [];
         });
 
         // Initialize by loading the XML
-      loadSequencerData();
-      
-        // Initialize Charge Packets (One per pixel)
-        const charges = [];
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                charges.push({ id: `charge-${r}-${c}`, row: r, col: c });
-            }
-        }
-
-        const chargeGroup = svg.selectAll(".charge-group")
-            .data(charges)
-            .enter()
-            .append("g")
-            .attr("class", "charge-group");
-
-        // Draw a cluster of 4 "holes" to represent the packet
-        chargeGroup.each(function() {
-            const g = d3.select(this);
-            g.append("circle").attr("cx", -6).attr("cy", -6).attr("r", 5).attr("class", "charge-packet");
-            g.append("circle").attr("cx", 6).attr("cy", -6).attr("r", 5).attr("class", "charge-packet");
-            g.append("circle").attr("cx", 0).attr("cy", 6).attr("r", 5).attr("class", "charge-packet");
-        });
-
-        function updateViz() {
-            const state = sequence[currentStateIndex];
-            d3.select("#state-label").text(state.id);
-
-            // 1. Update Gate Voltages (Colors)
-            gates.attr("class", d => {
-                if (d.type === 'V1') return `gate gate-${state.v1}`;
-                if (d.type === 'V2') return `gate gate-${state.v2}`;
-                if (d.type === 'V3') return `gate gate-${state.v3}`;
-                if (d.type === 'TG') return `gate gate-${state.tg}`;
-                if (d.type === 'H')  return `gate gate-${state.h}`;
-            });
-
-            // 2. Update Charge Routing
-            chargeGroup.transition().duration(400).ease(d3.easeCubicInOut)
-                .attr("transform", d => {
-                    let targetX = (d.col * pixelWidth) + (pixelWidth / 2);
-                    let targetY;
-                    let currentPixelBaseY = d.row * pixelHeight;
-                    let nextPixelBaseY = (d.row + 1) * pixelHeight;
-
-                    // Topographical wave routing
-                    if (state.id === "STATE_11") {
-                        targetY = currentPixelBaseY + (gateHeight * 1.5); // Centered in V2
-                    } else if (state.id === "STATE_12") {
-                        targetY = currentPixelBaseY + (gateHeight * 2);   // Spreading V2-V3
-                    } else if (state.id === "STATE_13") {
-                        targetY = currentPixelBaseY + (gateHeight * 2.5); // Squeezed in V3
-                    } else if (state.id === "STATE_14") {
-                        if (d.row === rows - 1) {
-                            targetY = tgY + 20; // Bottom row spreading to TG
-                        } else {
-                            targetY = currentPixelBaseY + (gateHeight * 3); // Spreading V3 to V1(next)
-                        }
-                    } else if (state.id === "STATE_15") {
-                        if (d.row === rows - 1) {
-                            targetY = tgY + 20; // Bottom row trapped in TG
-                        } else {
-                            targetY = nextPixelBaseY + (gateHeight * 0.5); // Squeezed in V1(next)
-                        }
-                    } else if (state.id === "STATE_16") {
-                        if (d.row === rows - 1) {
-                            targetY = hY + 30; // Bottom row dumped into H-Reg!
-                        } else {
-                            targetY = nextPixelBaseY + gateHeight; // Spreading V1(next) to V2(next)
-                        }
-                    }
-                    return `translate(${targetX}, ${targetY})`;
-                });
-        }
-
-        // Button Listeners
-        d3.select("#btn-next").on("click", () => {
-            currentStateIndex = (currentStateIndex + 1) % sequence.length;
-            updateViz();
-        });
-
-        d3.select("#btn-prev").on("click", () => {
-            currentStateIndex = (currentStateIndex - 1 + sequence.length) % sequence.length;
-            updateViz();
-        });
-
-        // Initialize
-        updateViz();
+        loadSequencerData();
     </script>
 </body>
 </html>
