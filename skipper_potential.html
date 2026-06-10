@@ -175,33 +175,36 @@
             const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
             path.transition(t).attr("d", lineGen(pts));
 
-            // Dynamic Charge Tracking (The Skipper Mechanic)
-            // Charge naturally falls to the deepest available well in the active region (SW, OG, SN)
-            let targetX, targetY;
-            const activeRegion = [
-                { id: "sw", val: state.sw, x: sectionWidth * 0.5 },
-                { id: "og", val: state.og, x: sectionWidth * 1.5 },
-                { id: "sn", val: state.sn, x: sectionWidth * 2.5 }
-            ];
-            
-            // Find the deepest (most negative) well in the active region to catch the holes
-            activeRegion.sort((a, b) => a.val - b.val);
-            let deepest = activeRegion[0];
+	    // Dynamic Charge Tracking (Explicit State Routing)
+            let targetX, targetY, opacity = 1;
 
-            if (state.dg === -10) {
-                // If Dump Gate is open, flush to drain
-                targetX = sectionWidth * 4.5; targetY = yScale(state.drain);
-            } else {
-                targetX = deepest.x; targetY = yScale(deepest.val + 0.5);
+            if (state.id.includes("8B") || state.id === "STATE_8") {
+                // Charge is held upstream in H3. 
+                // Keep it off-screen/invisible during the pedestal measurement.
+                targetX = sectionWidth * 0.5; 
+                targetY = yScale(-2.5); 
+                opacity = 0; 
+            } 
+            else if (state.id.includes("8C") || state.id.includes("9")) {
+                // Caught and resting in the deep Summing Well
+                targetX = sectionWidth * 0.5; 
+                targetY = yScale(state.sw + 0.5);
+            } 
+            else if (state.id.includes("10A") || state.id.includes("10RB") || state.id.includes("10B")) {
+                // Dumped and squeezed onto the Sense Node for signal measurement
+                targetX = sectionWidth * 2.5; 
+                targetY = yScale(state.sn + 0.5);
+            } 
+            else if (state.id.includes("10RG") || state.dg === -10) {
+                // Flushed through the Dump Gate into the Drain
+                targetX = sectionWidth * 4.5; 
+                targetY = yScale(state.drain); 
+                opacity = 0;
             }
 
-            // Fade charge out if it flushes to drain
             chargePacket.transition(t)
                 .attr("transform", `translate(${targetX}, ${targetY})`)
-                .style("opacity", state.dg === -10 ? 0 : 1);
-
-            document.getElementById("prev-btn").disabled = currentState === 0;
-            document.getElementById("next-btn").disabled = currentState === parsedSequence.length - 1;
+                .style("opacity", opacity);
         }
 
         function step(dir) {
