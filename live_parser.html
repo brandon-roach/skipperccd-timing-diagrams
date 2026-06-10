@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Skipper CCD Parser</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f8f9fa; color: #333; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+        .dashboard { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        textarea { width: 100%; height: 200px; font-family: monospace; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; padding: 8px; box-sizing: border-box; }
+        button { padding: 10px 20px; font-size: 16px; font-weight: bold; cursor: pointer; border: none; background: #0056b3; color: white; border-radius: 6px; transition: background 0.2s; width: 100%; margin-bottom: 20px; }
+        button:hover { background: #004494; }
+        .controls { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+        .ctrl-btn { width: auto; background: #f0f7ff; color: #0056b3; border: 2px solid #0056b3; }
+        .ctrl-btn:hover { background: #e0f0ff; }
+        .ctrl-btn:disabled { border-color: #ccc; color: #ccc; background: #f9f9f9; cursor: not-allowed; }
+        
+        .grid-line { stroke: #e0e0e0; stroke-width: 1; stroke-dasharray: 4; }
+        .axis-text { font-size: 12px; fill: #666; }
+        .gate-label { font-size: 16px; font-weight: bold; text-anchor: middle; }
+        .potential-line { fill: none; stroke: #2c3e50; stroke-width: 5; stroke-linejoin: round; }
+        .charge { fill: #e74c3c; opacity: 0.9; }
+        .state-display { font-size: 20px; font-weight: bold; font-family: monospace; text-align: center; color: #2c3e50; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h2>Live Sequence Parser</h2>
+    <p>Paste your Bash voltage script and Sequencer XML below. The engine will parse the raw files and map the thermodynamics.</p>
+
+    <div class="grid">
+        <div>
+            <label><strong>Bash Script (Voltages)</strong></label>
+            <textarea id="bash-input">
+vh=-0.5
+vl=-2.5
+th=-1
+tl=-3.5
+hh=-2
+hl=-4.5
+sh=-3
+sl=-10
+oh=-4
+ol=-8
+rh=7
+rl=-4
+dh=-1
+dl=-10
+            </textarea>
+        </div>
+        <div>
+            <label><strong>XML Sequencer</strong></label>
+            <textarea id="xml-input">
+<sequence>
+    <variables>
+        <state name="STATE_8C" val="H3B | SWA | SWB | RGA | RGB | OGA | OGB"/>
+        <state name="STATE_10A" val="H3B | RGA | RGB | OGA | OGB"/>
+        <state name="STATE_10RB" val="H3B | DGA | DGB"/>
+        <state name="STATE_10RG" val="H3B | OGA | OGB | DGA | DGB"/>
+    </variables>
+    <recipes>
+        <recipe name="skipper">
+            <step state="STATE_8C"/>
+            <step state="STATE_10A"/>
+            <step state="STATE_10RB"/>
+            <step state="STATE_10RG"/>
+        </recipe>
+    </recipes>
+</sequence>
+            </textarea>
+        </div>
+    </div>
+
+    <button onclick="parseAndRender()">Parse & Render Animation</button>
+
+    <div class="dashboard" id="viz-container" style="display:none;">
+        <div class="state-display" id="state-name">Parsed Sequence Ready</div>
+        <div id="viz"></div>
+        <div class="controls">
+            <button class="ctrl-btn" id="prev-btn" onclick="step(-1)">◀ Previous</button>
+            <button class="ctrl-btn" id="next-btn" onclick="step(1)">Next ▶</button>
+        </div>
+    </div>
+
+    <script>
+        let parsedSequence = [];
+        let currentState = 0;
+
+        // SVG Setup
+        const margin = {top: 40, right: 30, bottom: 40, left: 60};
+        const width = 800 - margin.left - margin.right;
+        const height = 350 - margin.top - margin.bottom;
+        const gates = ['SW', 'OG', 'Sense Node', 'RG', 'Drain'];
+        const sectionWidth = width / gates.length;
+        const yScale = d3.scaleLinear().domain([8, -12]).range([0, height]);
+
+        const svg = d3.select("#viz").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const yTicks = d3.range(8, -13, -2);
+        svg.selectAll(".grid-line").data(yTicks).enter().append("line").attr("class", "grid-line").attr("x1", 0).attr("x2", width).attr("y1", d => yScale(d)).attr("y2", d => yScale(d));
+        svg.selectAll(".axis-text").data(yTicks).enter().append("text").attr("class", "axis-text").attr("x", -10).attr("y", d => yScale(d) + 4).attr("text-anchor", "end").text(d => `${d}V`);
+        svg.selectAll(".gate-label").data(gates).enter().append("text").attr("class", "gate-label").attr("x", (d, i) => (i * sectionWidth) + (sectionWidth / 2)).attr("y", -15).text(d => d);
+
+        const path = svg.append("path").attr("class", "potential-line");
+        const chargePacket = svg.append("g").attr("class", "charge-group").style("opacity", 0);
+        [[ -8,0], [8,0], [0,-8], [-5,8], [5,8], [0,0]].forEach(pos => {
+            chargePacket.append("circle").attr("r", 4).attr("cx", pos[0]).attr("cy", pos[1]).attr("class", "charge");
+        });
+
+        function parseAndRender() {
+            const bashText = document.getElementById("bash-input").value;
+            const xmlText = document.getElementById("xml-input").value;
+
+            // 1. Regex Parse Bash Voltages
+            const v = {};
+            const regex = /([a-z0-9_]+)=([-0-9.]+)/gi;
+            let match;
+            while ((match = regex.exec(bashText)) !== null) {
+                v[match[1]] = parseFloat(match[2]);
+            }
+
+            // 2. Parse XML DOM
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+            
+            const stateDict = {};
+            Array.from(xmlDoc.querySelectorAll("variables state")).forEach(el => {
+                stateDict[el.getAttribute("name")] = el.getAttribute("val");
+            });
+
+            const steps = Array.from(xmlDoc.querySelectorAll("recipe[name='skipper'] step"));
+            
+            // 3. Map Logic (Present in string = Low Voltage)
+            parsedSequence = steps.map(step => {
+                const id = step.getAttribute("state");
+                const valStr = stateDict[id] || "";
+                return {
+                    id: id,
+                    sw: valStr.includes("SWA") ? v.sl : v.sh,
+                    og: valStr.includes("OGA") ? v.ol : v.oh,
+                    rg: valStr.includes("RGA") ? v.rl : v.rh,
+                    sn: -6, // Assumed static float for vis
+                    drain: 10
+                };
+            });
+
+            if(parsedSequence.length > 0) {
+                document.getElementById("viz-container").style.display = "block";
+                currentState = 0;
+                updateViz();
+            }
+        }
+
+        function updateViz() {
+            const state = parsedSequence[currentState];
+            const t = d3.transition().duration(500);
+
+            document.getElementById("state-name").innerText = state.id;
+
+            const pts = [
+                {x: 0, y: state.sw}, {x: sectionWidth, y: state.sw},
+                {x: sectionWidth, y: state.og}, {x: sectionWidth * 2, y: state.og},
+                {x: sectionWidth * 2, y: state.sn}, {x: sectionWidth * 3, y: state.sn},
+                {x: sectionWidth * 3, y: state.rg}, {x: sectionWidth * 4, y: state.rg},
+                {x: sectionWidth * 4, y: state.drain}, {x: width, y: state.drain}
+            ];
+
+            const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
+            path.transition(t).attr("d", lineGen(pts));
+
+            // Basic Charge Tracking Logic
+            chargePacket.transition(t).style("opacity", 1)
+                .attr("transform", `translate(${sectionWidth * 1.5}, ${yScale(Math.min(state.sw, state.og, state.sn))})`);
+
+            document.getElementById("prev-btn").disabled = currentState === 0;
+            document.getElementById("next-btn").disabled = currentState === parsedSequence.length - 1;
+        }
+
+        function step(dir) {
+            currentState += dir;
+            updateViz();
+        }
+    </script>
+</body>
+</html>
