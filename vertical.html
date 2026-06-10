@@ -169,6 +169,7 @@
         });
 
         // The dynamic file loader
+        // The dynamic file loader
         async function loadSequencerData() {
             try {
                 // Fetch the XML file
@@ -176,10 +177,12 @@
                 if (!response.ok) throw new Error("Could not load XML file.");
                 const xmlText = await response.text();
 
-                // Parse the XML string into a navigable DOM object
-                const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                // THE FIX: Wrap the raw text in a single root element so the browser parser doesn't panic
+                const safeXmlText = `<root>${xmlText}</root>`;
 
+                // Parse the sanitized XML string into a navigable DOM object
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(safeXmlText, "text/xml");
                 // Build a dictionary of all state definitions
                 const stateDict = {};
                 const stateNodes = xmlDoc.querySelectorAll("state");
