@@ -178,8 +178,7 @@
             const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
             path.transition(t).attr("d", lineGen(pts));
 
-	    // Topographical Charge Routing
-            // Respects physical barriers and locked gates
+	    // Phase-Aware Topographical Charge Routing
             let targetX, targetY, opacity = 1;
 
             if (state.dg < -5) { 
@@ -187,24 +186,30 @@
                 targetX = sectionWidth * 4.5; 
                 targetY = yScale(state.drain); 
                 opacity = 0;
-            } else if (state.id.includes("10A") || state.id.includes("10B") || state.id.includes("10RG")) {
-                // Locked on the Sense Node behind the OG barrier
+            } else if (state.id.includes("8C") && state.og > -5) {
+                // The Bug State: OG is a barrier, charge avalanches to Sense Node
                 targetX = sectionWidth * 2.5; 
                 targetY = yScale(state.sn + 0.5);
-            } else if (state.og < state.sw) {
-                // The Holding Pen (OG is deeper than SW)
-                targetX = sectionWidth * 1.5; 
-                targetY = yScale(state.og + 0.5);
-            } else {
-                // Safely resting in the deep Summing Well
+            } else if (state.id.includes("8")) {
+                // Pedestal Phase: Charge safely caught in SW or OG holding pen
+                let deepest = (state.sw < state.og) ? {x: 0.5, y: state.sw} : {x: 1.5, y: state.og};
+                targetX = sectionWidth * deepest.x; 
+                targetY = yScale(deepest.y + 0.5);
+            } else if (state.id.includes("10RB") || state.id.includes("10RG")) {
+                // Reset Phase: Charge flowed backward and is now locked in the SW
                 targetX = sectionWidth * 0.5; 
                 targetY = yScale(state.sw + 0.5);
+            } else {
+                // STATE_9, 10A, 10B (Signal Phase): Charge is squeezed onto Sense Node
+                targetX = sectionWidth * 2.5; 
+                targetY = yScale(state.sn + 0.5);
             }
 
             chargePacket.transition(t)
                 .attr("transform", `translate(${targetX}, ${targetY})`)
                 .style("opacity", opacity);
-            // Button state controls
+
+	    // Button state controls
             document.getElementById("prev-btn").disabled = currentState === 0;
             document.getElementById("next-btn").disabled = currentState === parsedSequence.length - 1;
         }
