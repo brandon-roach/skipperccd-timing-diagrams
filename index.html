@@ -64,9 +64,10 @@
             chargePacket.append("circle").attr("r", 4).attr("cx", pos[0]).attr("cy", pos[1]).attr("class", "charge");
         });
 
-        // The Auto-Loader Function
-        async function loadAndParse() {
-            try {
+      // The Auto-Loader Function
+      // The Auto-Loader Function
+         async function loadAndParse() {
+	     try {
                 // Fetch the files directly from the repo
                 const bashResponse = await fetch('voltage_skp_lta_v2.sh');
                 const xmlResponse = await fetch('sequencer_simple_qis.xml');
@@ -75,6 +76,8 @@
                 
                 const bashText = await bashResponse.text();
                 const xmlText = await xmlResponse.text();
+
+                // FIX: Wrap the raw file in a root tag so the browser's strict XML parser doesn't panic
                 const safeXmlText = `<root>${xmlText}</root>`;
 
                 // 1. Regex Parse Bash Voltages
@@ -85,9 +88,14 @@
                     v[match[1]] = parseFloat(match[2]);
                 }
 
-                // 2. Parse XML DOM
+                // 2. Parse XML DOM using the safe wrapped text
                 const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(safexmlText, "text/xml");
+                const xmlDoc = parser.parseFromString(safeXmlText, "text/xml");
+                
+                // Check if parser threw an error inside the document
+                if (xmlDoc.querySelector("parsererror")) {
+                    throw new Error("XML formatting error detected by browser.");
+                }
                 
                 const stateDict = {};
                 Array.from(xmlDoc.querySelectorAll("variables state")).forEach(el => {
