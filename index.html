@@ -75,6 +75,7 @@
                 
                 const bashText = await bashResponse.text();
                 const xmlText = await xmlResponse.text();
+                const safeXmlText = `<root>${xmlText}</root>`;
 
                 // 1. Regex Parse Bash Voltages
                 const v = {};
