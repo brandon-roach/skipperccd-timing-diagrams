@@ -116,26 +116,30 @@
                     if (isHD1) { adcTxt = "HD1 (Pedestal) Active"; adcActive = true; }
                     if (isHD2) { adcTxt = "HD2 (Signal) Active"; adcActive = true; }
 
-                    // Physical Channel Map
-                    // Channel under SN is offset slightly deeper than Vref due to depletion
-                    const snChannel = (v.vr || -7) - 1.5; 
+                    // Determine Reset Gate Status
+                    const rgOpen = !valStr.includes("RGA");
+                    
+                    // The SN Voltage Logic
+                    const vref = v.vr || -7;
+                    const snChannel = vref - 1.5; 
+                    
+                    // If RG is open, it snaps to Vref. If closed, it floats at the channel depth.
+                    const actualSN = rgOpen ? vref : snChannel;
                     
                     return {
                         id: id,
                         timer: step.getAttribute("delay"),
                         sw: valStr.includes("SWA") ? v.sl : v.sh,
                         og: valStr.includes("OGA") ? v.ol : v.oh,
-                        sn: snChannel,
-                        // DGA Present = Barrier (-1V), Missing = Flush (-10V)
+                        sn: actualSN,
                         dg: valStr.includes("DGA") ? v.dh : v.dl, 
                         drain: v.vdrain || -24, 
-                        // Electrical Reset State
-                        rgOpen: !valStr.includes("RGA"),
+                        rgOpen: rgOpen,
                         adcTxt: adcTxt,
                         adcActive: adcActive
                     };
-                });
-
+});
+		
                 if(parsedSequence.length > 0) {
                     document.getElementById("status-msg").innerText = "Successfully parsed physical architecture.";
                     currentState = 0;
