@@ -3,94 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Skipper CCD CDS Sequence</title>
+    <title>1:1 Skipper CCD Sequence</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #f8f9fa;
-            color: #333;
-            max-width: 900px;
-            margin: 2rem auto;
-            padding: 0 1rem;
-        }
-        .dashboard {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .header-panel {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 2px solid #eee;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
-        }
-        .status-box {
-            text-align: right;
-        }
-        .state-name {
-            font-size: 24px;
-            font-weight: bold;
-            color: #2c3e50;
-            font-family: monospace;
-        }
-        .adc-status {
-            font-size: 14px;
-            font-weight: bold;
-            padding: 4px 8px;
-            border-radius: 4px;
-            display: inline-block;
-            margin-top: 5px;
-        }
+        body { font-family: -apple-system, sans-serif; background: #f8f9fa; color: #333; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+        .dashboard { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
+        .header-panel { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 20px; }
+        .status-box { text-align: right; }
+        .state-name { font-size: 24px; font-weight: bold; color: #2c3e50; font-family: monospace; }
+        .adc-status { font-size: 14px; font-weight: bold; padding: 4px 8px; border-radius: 4px; display: inline-block; margin-top: 5px; }
         .adc-active { background-color: #2ecc71; color: white; }
         .adc-inactive { background-color: #e0e0e0; color: #7f8c8d; }
-        .controls {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            margin-bottom: 20px;
-        }
-        button {
-            padding: 10px 20px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            border: 2px solid #0056b3;
-            background-color: #f0f7ff;
-            color: #0056b3;
-            border-radius: 6px;
-            transition: all 0.2s;
-        }
-        button:hover { background-color: #e0f0ff; }
-        button:disabled { border-color: #ccc; color: #ccc; background-color: #f9f9f9; cursor: not-allowed; }
-        #play-btn { background-color: #0056b3; color: white; }
-        #play-btn:hover { background-color: #004494; }
-        
+        .controls { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; }
+        button { padding: 10px 20px; font-size: 16px; font-weight: bold; cursor: pointer; border: 2px solid #0056b3; background: #f0f7ff; color: #0056b3; border-radius: 6px; transition: all 0.2s; }
+        button:hover { background: #e0f0ff; }
+        button:disabled { border-color: #ccc; color: #ccc; background: #f9f9f9; cursor: not-allowed; }
+        #play-btn { background: #0056b3; color: white; }
+        #play-btn:hover { background: #004494; }
         .grid-line { stroke: #e0e0e0; stroke-width: 1; stroke-dasharray: 4; }
         .axis-text { font-size: 12px; fill: #666; }
         .gate-label { font-size: 16px; font-weight: bold; text-anchor: middle; }
         .potential-line { fill: none; stroke: #2c3e50; stroke-width: 5; stroke-linejoin: round; }
         .charge { fill: #e74c3c; opacity: 0.9; }
-        .desc-text { font-size: 16px; color: #555; text-align: center; min-height: 48px; }
+        .desc-text { font-size: 15px; color: #555; text-align: left; min-height: 48px; max-width: 60%; }
+        code { background: #f1f1f1; padding: 2px 4px; border-radius: 3px; color: #d63031; }
     </style>
 </head>
 <body>
 
-    <h2>Core Output Stage CDS Sequence</h2>
-    <p>Isolated view of the Correlated Double Sampling readout. Step through the XML sequence to watch how the charge interacts with the Sense Node and ADC triggers.</p>
+    <h2>Complete 8-Step Recipe Sequence</h2>
+    <p>This diagram maps 1:1 with the exact physical delays and states defined in the <code>skipper</code> XML recipe block.</p>
 
     <div class="dashboard">
         <div class="header-panel">
-            <div>
-                <p class="desc-text" id="desc">Ready to begin sequence.</p>
-            </div>
+            <div class="desc-text" id="desc">Ready to begin sequence.</div>
             <div class="status-box">
-                <div class="state-name" id="state-name">STATE_8B</div>
-                <div class="adc-status adc-active" id="adc-status">HD1 (Pedestal) Active</div>
+                <div class="state-name" id="state-name">STATE_8</div>
+                <div class="adc-status adc-inactive" id="adc-status">ADC Inactive</div>
             </div>
         </div>
 
@@ -104,29 +53,36 @@
     </div>
 
     <script>
-        // The exact XML Sequence logic
         const sequence = [
-            { id: "STATE_8B", sw: -3, og: -8, sn: -6, rg: 7, drain: 10, adc: "HD1 (Pedestal) Active", active: true,
-              desc: "ADC measures the empty baseline. Summing Well is HIGH, acting as a barrier.", chargeLoc: "incoming" },
+            { id: "STATE_8", timer: "delay_RG_after", sw: -3, og: -8, sn: -6, rg: 7, drain: 10, adc: "ADC Inactive", active: false,
+              desc: "Settling Time. RG has closed. The node floats to let analog transients die down before measuring.", chargeLoc: "incoming" },
               
-            { id: "STATE_8C", sw: -10, og: -8, sn: -6, rg: 7, drain: 10, adc: "HD1 Active (Feedthrough)", active: true,
-              desc: "Summing Well plunges LOW (-10V). Charge falls into the deep staging area. OG acts as a firewall.", chargeLoc: "sw" },
+            { id: "STATE_8B", timer: "delay_Integ_ped", sw: -3, og: -8, sn: -6, rg: 7, drain: 10, adc: "HD1 (Pedestal) Active", active: true,
+              desc: "Baseline Measurement. The ADC integrates the empty Sense Node.", chargeLoc: "incoming" },
               
-            { id: "STATE_10A", sw: -3, og: -8, sn: -6, rg: 7, drain: 10, adc: "HD2 (Signal) Active", active: true,
-              desc: "Summing Well violently snaps HIGH. Charge spills over the OG speed bump onto the Sense Node.", chargeLoc: "sn" },
+            { id: "STATE_8C", timer: "delay_integ_after_SW_high", sw: -10, og: -8, sn: -6, rg: 7, drain: 10, adc: "HD1 Active (Feedthrough)", active: true,
+              desc: "The Catch. SW drops LOW to catch the charge. HD1 stays on just long enough to record the capacitive feedthrough.", chargeLoc: "sw" },
               
-            { id: "STATE_10RB", sw: -3, og: -4, sn: -6, rg: 7, drain: 10, adc: "ADC Inactive", active: false,
-              desc: "Output Gate snaps HIGH (-4V), dropping a barrier behind the charge. It is trapped on the Sense Node.", chargeLoc: "sn" },
+            { id: "STATE_9", timer: "delay_SWhigh", sw: -10, og: -8, sn: -6, rg: 7, drain: 10, adc: "ADC Inactive", active: false,
+              desc: "Pooling Delay. ADC turns off. Charge rests and thermalizes in the deep Summing Well.", chargeLoc: "sw" },
               
-            { id: "STATE_10RG", sw: -3, og: -4, sn: -6, rg: -4, drain: 10, adc: "ADC Inactive", active: false,
-              desc: "Reset Gate drops LOW (-4V). The node is hard-clamped to the drain, flushing the charge.", chargeLoc: "drain" }
+            { id: "STATE_10A (1)", timer: "delay_Integ_sig", sw: -3, og: -8, sn: -6, rg: 7, drain: 10, adc: "HD2 (Signal) Active", active: true,
+              desc: "The Dump. SW snaps HIGH. Charge spills over the OG speed bump onto the Sense Node. ADC measures the signal.", chargeLoc: "sn" },
+
+            { id: "STATE_10A (2)", timer: "delay_integ_after_SW_high", sw: -3, og: -8, sn: -6, rg: 7, drain: 10, adc: "HD2 Active (Feedthrough)", active: true,
+              desc: "Symmetrical Integration. Hardware state remains identical, but the timer stack holds the ADC open to capture the symmetrical rising-edge feedthrough.", chargeLoc: "sn" },
+              
+            { id: "STATE_10RB", timer: "delay_og_low", sw: -3, og: -4, sn: -6, rg: 7, drain: 10, adc: "ADC Inactive", active: false,
+              desc: "The Trap. OG snaps HIGH, sealing the Sense Node so charge cannot flow backward.", chargeLoc: "sn" },
+              
+            { id: "STATE_10RG", timer: "delay_RG_Width", sw: -3, og: -4, sn: -6, rg: -4, drain: 10, adc: "ADC Inactive", active: false,
+              desc: "The Flush. RG drops LOW, clamping the node to the power supply. Charge is destroyed.", chargeLoc: "drain" }
         ];
 
         let currentState = 0;
         let isPlaying = false;
         let playInterval;
 
-        // Setup SVG Dimensions
         const margin = {top: 50, right: 30, bottom: 40, left: 60};
         const width = 800 - margin.left - margin.right;
         const height = 400 - margin.top - margin.bottom;
@@ -137,42 +93,26 @@
             .append("g")
             .attr("transform", `translate(${margin.left},${margin.top})`);
 
-        // Scales
-        const gates = ['SW (Summing)', 'OG (Output)', 'SN (Sense Node)', 'RG (Reset)', 'Drain'];
+        const gates = ['SW', 'OG', 'Sense Node', 'RG', 'Drain'];
         const sectionWidth = width / gates.length;
-        
-        // Inverted Y-axis (+8V down to -12V)
         const yScale = d3.scaleLinear().domain([8, -12]).range([0, height]);
 
-        // Draw Grid and Axis
         const yTicks = d3.range(8, -13, -2);
-        svg.selectAll(".grid-line")
-            .data(yTicks).enter().append("line")
-            .attr("class", "grid-line")
-            .attr("x1", 0).attr("x2", width)
+        svg.selectAll(".grid-line").data(yTicks).enter().append("line")
+            .attr("class", "grid-line").attr("x1", 0).attr("x2", width)
             .attr("y1", d => yScale(d)).attr("y2", d => yScale(d));
             
-        svg.selectAll(".axis-text")
-            .data(yTicks).enter().append("text")
-            .attr("class", "axis-text")
-            .attr("x", -10).attr("y", d => yScale(d) + 4)
-            .attr("text-anchor", "end")
-            .text(d => `${d}V`);
+        svg.selectAll(".axis-text").data(yTicks).enter().append("text")
+            .attr("class", "axis-text").attr("x", -10).attr("y", d => yScale(d) + 4)
+            .attr("text-anchor", "end").text(d => `${d}V`);
 
-        // Draw Gate Labels
-        svg.selectAll(".gate-label")
-            .data(gates).enter().append("text")
-            .attr("class", "gate-label")
-            .attr("x", (d, i) => (i * sectionWidth) + (sectionWidth / 2))
-            .attr("y", -20)
-            .text(d => d);
+        svg.selectAll(".gate-label").data(gates).enter().append("text")
+            .attr("class", "gate-label").attr("x", (d, i) => (i * sectionWidth) + (sectionWidth / 2))
+            .attr("y", -20).text(d => d);
 
-        // Path generator for the step function
         const path = svg.append("path").attr("class", "potential-line");
-
-        // Charge Packet (Group of 'holes')
         const chargePacket = svg.append("g").attr("class", "charge-group");
-        // Create 6 little circles to represent the charge packet
+        
         const offsets = [[-8, 0], [8, 0], [0, -8], [-5, 8], [5, 8], [0, 0]];
         offsets.forEach(pos => {
             chargePacket.append("circle").attr("r", 4).attr("cx", pos[0]).attr("cy", pos[1]).attr("class", "charge");
@@ -180,77 +120,44 @@
 
         function updateViz(stateIndex) {
             const state = sequence[stateIndex];
-            const t = d3.transition().duration(600).ease(d3.easeCubicInOut);
+            const t = d3.transition().duration(500).ease(d3.easeCubicInOut);
 
-            // Update DOM Text
             d3.select("#state-name").text(state.id);
-            d3.select("#desc").text(state.desc);
+            d3.select("#desc").html(`<strong>Timer: <code>${state.timer}</code></strong><br/>${state.desc}`);
             d3.select("#adc-status")
                 .text(state.adc)
                 .attr("class", state.active ? "adc-status adc-active" : "adc-status adc-inactive");
 
-            // Build coordinate path for the potential line
             const pts = [
-                {x: 0, y: state.sw},
-                {x: sectionWidth, y: state.sw},
-                {x: sectionWidth, y: state.og},
-                {x: sectionWidth * 2, y: state.og},
-                {x: sectionWidth * 2, y: state.sn},
-                {x: sectionWidth * 3, y: state.sn},
-                {x: sectionWidth * 3, y: state.rg},
-                {x: sectionWidth * 4, y: state.rg},
-                {x: sectionWidth * 4, y: state.drain},
-                {x: width, y: state.drain}
+                {x: 0, y: state.sw}, {x: sectionWidth, y: state.sw},
+                {x: sectionWidth, y: state.og}, {x: sectionWidth * 2, y: state.og},
+                {x: sectionWidth * 2, y: state.sn}, {x: sectionWidth * 3, y: state.sn},
+                {x: sectionWidth * 3, y: state.rg}, {x: sectionWidth * 4, y: state.rg},
+                {x: sectionWidth * 4, y: state.drain}, {x: width, y: state.drain}
             ];
 
-            const lineGen = d3.line()
-                .x(d => d.x)
-                .y(d => yScale(d.y));
-
+            const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
             path.transition(t).attr("d", lineGen(pts));
 
-            // Animate Charge Packet
             let targetX, targetY, opacity = 1;
-            
             if (state.chargeLoc === "incoming") {
-                targetX = sectionWidth * 0.5;
-                targetY = yScale(-2.5); // Hovering above SW
-                opacity = 0; // Fade out if going backwards
+                targetX = sectionWidth * 0.5; targetY = yScale(-2.5); opacity = 0;
             } else if (state.chargeLoc === "sw") {
-                targetX = sectionWidth * 0.5;
-                targetY = yScale(-9.5); // Bottom of SW
+                targetX = sectionWidth * 0.5; targetY = yScale(-9.5);
             } else if (state.chargeLoc === "sn") {
-                targetX = sectionWidth * 2.5;
-                targetY = yScale(-5.5); // Sitting on SN
+                targetX = sectionWidth * 2.5; targetY = yScale(-5.5);
             } else if (state.chargeLoc === "drain") {
-                targetX = sectionWidth * 4.5;
-                targetY = yScale(7); // Pulled high into power supply
-                opacity = 0; // Fade out into drain
+                targetX = sectionWidth * 4.5; targetY = yScale(7); opacity = 0;
             }
 
-            chargePacket.transition(t)
-                .attr("transform", `translate(${targetX}, ${targetY})`)
-                .style("opacity", opacity);
+            chargePacket.transition(t).attr("transform", `translate(${targetX}, ${targetY})`).style("opacity", opacity);
 
-            // Update Buttons
             d3.select("#prev-btn").property("disabled", stateIndex === 0);
             d3.select("#next-btn").property("disabled", stateIndex === sequence.length - 1);
         }
 
-        // Button Listeners
-        d3.select("#next-btn").on("click", () => {
-            if (currentState < sequence.length - 1) {
-                currentState++;
-                updateViz(currentState);
-            }
-        });
-
-        d3.select("#prev-btn").on("click", () => {
-            if (currentState > 0) {
-                currentState--;
-                updateViz(currentState);
-            }
-        });
+        d3.select("#next-btn").on("click", () => { if (currentState < sequence.length - 1) { currentState++; updateViz(currentState); }});
+        d3.select("#prev-btn").on("click", () => { if (currentState > 0) { currentState--; updateViz(currentState); }});
 
         d3.select("#play-btn").on("click", function() {
             if (isPlaying) {
@@ -258,7 +165,7 @@
                 d3.select(this).text("Auto-Play");
                 isPlaying = false;
             } else {
-                if (currentState === sequence.length - 1) currentState = 0; // Loop back if at end
+                if (currentState === sequence.length - 1) currentState = 0;
                 d3.select(this).text("Pause");
                 isPlaying = true;
                 updateViz(currentState);
@@ -271,11 +178,10 @@
                         d3.select("#play-btn").text("Auto-Play");
                         isPlaying = false;
                     }
-                }, 1500); // 1.5s per state
+                }, 1800);
             }
         });
 
-        // Initial Render
         updateViz(0);
     </script>
 </body>
