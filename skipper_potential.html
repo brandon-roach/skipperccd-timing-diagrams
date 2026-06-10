@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skipper CCD Potential Diagram</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            max-width: 900px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 2px solid #0056b3;
+            background-color: #f0f7ff;
+            color: #0056b3;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        button.active {
+            background-color: #0056b3;
+            color: white;
+        }
+        #viz {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .grid-line { stroke: #e0e0e0; stroke-width: 1; stroke-dasharray: 4; }
+        .axis-text { font-size: 12px; fill: #666; }
+        .gate-label { font-size: 14px; font-weight: bold; text-anchor: middle; }
+        .voltage-label { font-size: 12px; text-anchor: middle; fill: #0056b3; font-weight: bold; }
+        .potential-line { fill: none; stroke: #2c3e50; stroke-width: 4; stroke-linejoin: round; }
+        .dg-line { fill: none; stroke: #e74c3c; stroke-width: 3; stroke-dasharray: 6; }
+    </style>
+</head>
+<body>
+
+    <h2>p-channel Output Stage Potential</h2>
+    <p>Toggle the gates to transition between High (Barrier) and Low (Well). The Y-axis is inverted so positive holes "fall" to the most negative potentials.</p>
+
+    <div class="controls" id="buttons"></div>
+    <div id="viz"></div>
+
+    <script>
+        // Physical Gate Definitions
+        const gates = [
+            { id: 'V', name: 'Vertical', h: -0.5, l: -2.5, state: 'high' },
+            { id: 'TG', name: 'Transfer', h: -1, l: -3.5, state: 'high' },
+            { id: 'H', name: 'Horizontal', h: -2, l: -4.5, state: 'low' },
+            { id: 'SW', name: 'Summing Well', h: -3, l: -10, state: 'low' },
+            { id: 'OG', name: 'Output Gate', h: -4, l: -8, state: 'high' },
+            { id: 'SN', name: 'Sense Node', h: -6, l: -6, state: 'fixed' }, // Passive Node
+            { id: 'RG', name: 'Reset Gate', h: 7, l: -4, state: 'high' },
+            { id: 'RD', name: 'Drain', h: 10, l: 10, state: 'fixed' } // Power Supply
+        ];
+
+        // Dump Gate (Parallel to SW)
+        let dgState = 'high';
+        const dg = { h: -1, l: -10 };
+
+        // Setup SVG Dimensions
+        const margin = {top: 40, right: 30, bottom: 40, left: 50};
+        const width = 800 - margin.left - margin.right;
+        const height = 400 - margin.top - margin.bottom;
+
+        const svg = d3.select("#viz").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Scales (Y-axis is explicitly inverted for p-channel)
+        const xScale = d3.scaleLinear().domain([0, gates.length]).range([0, width]);
+        const yScale = d3.scaleLinear().domain([8, -12]).range([0, height]);
+
+        // Draw Y-axis Grid
+        const yTicks = d3.range(8, -13, -2);
+        svg.selectAll(".grid-line")
+            .data(yTicks).enter().append("line")
+            .attr("class", "grid-line")
+            .attr("x1", 0).attr("x2", width)
+            .attr("y1", d => yScale(d)).attr("y2", d => yScale(d));
+            
+        svg.selectAll(".axis-text")
+            .data(yTicks).enter().append("text")
+            .attr("class", "axis-text")
+            .attr("x", -10).attr("y", d => yScale(d) + 4)
+            .attr("text-anchor", "end")
+            .text(d => `${d}V`);
+
+        // Draw X-axis Labels
+        svg.selectAll(".gate-label")
+            .data(gates).enter().append("text")
+            .attr("class", "gate-label")
+            .attr("x", (d, i) => xScale(i) + (width / gates.length) / 2)
+            .attr("y", -15)
+            .text(d => d.id);
+
+        // Path Generators
+        const lineGen = d3.line()
+            .x(d => d.x)
+            .y(d => d.y)
+            .curve(d3.curveStepAfter);
+
+        const path = svg.append("path").attr("class", "potential-line");
+        const dgPath = svg.append("path").attr("class", "dg-line");
+        const vLabels = svg.append("g");
+
+        // Update Function
+        function update() {
+            const points = [];
+            const stepW = width / gates.length;
+
+            gates.forEach((g, i) => {
+                let v = g.state === 'high' ? g.h : (g.state === 'low' ? g.l : g.h);
+                points.push({ x: xScale(i), y: yScale(v), v: v });
+            });
+            // Cap the end of the step line
+            points.push({ x: width, y: points[points.length-1].y, v: null });
+
+            // Animate Main Potential Line
+            path.datum(points)
+                .transition().duration(400)
+                .attr("d", lineGen);
+
+            // Animate Dump Gate (Dashed line under SW)
+            let dgV = dgState === 'high' ? dg.h : dg.l;
+            let swIndex = gates.findIndex(g => g.id === 'SW');
+            dgPath.transition().duration(400).attr("d", `M ${xScale(swIndex)} ${yScale(dgV)} L ${xScale(swIndex+1)} ${yScale(dgV)}`);
+
+            // Update Voltage Labels
+            const labels = vLabels.selectAll(".voltage-label").data(points.slice(0, -1));
+            labels.enter().append("text")
+                .attr("class", "voltage-label")
+                .merge(labels)
+                .attr("x", (d, i) => xScale(i) + stepW / 2)
+                .transition().duration(400)
+                .attr("y", d => yScale(d.v) - 8)
+                .text(d => `${d.v}V`);
+        }
+
+        // Build UI Buttons
+        const btns = d3.select("#buttons");
+        gates.filter(g => g.state !== 'fixed').forEach(g => {
+            btns.append("button")
+                .text(`${g.id}: ${g.state.toUpperCase()}`)
+                .classed("active", g.state === 'low')
+                .on("click", function() {
+                    g.state = g.state === 'high' ? 'low' : 'high';
+                    d3.select(this)
+                        .text(`${g.id}: ${g.state.toUpperCase()}`)
+                        .classed("active", g.state === 'low');
+                    update();
+                });
+        });
+
+        // Add Dump Gate Button
+        btns.append("button")
+            .text(`DG (Dump): HIGH`)
+            .style("border-color", "#e74c3c")
+            .style("color", "#e74c3c")
+            .on("click", function() {
+                dgState = dgState === 'high' ? 'low' : 'high';
+                d3.select(this)
+                    .text(`DG (Dump): ${dgState.toUpperCase()}`)
+                    .style("background-color", dgState === 'low' ? "#e74c3c" : "white")
+                    .style("color", dgState === 'low' ? "white" : "#e74c3c");
+                update();
+            });
+
+        // Initialize
+        update();
+    </script>
+</body>
+</html>
