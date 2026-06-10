@@ -105,7 +105,7 @@
 
                 const steps = Array.from(xmlDoc.querySelectorAll("recipe[name='skipper'] step"));
                 
-                // 3. Map Logic
+                // Map Logic
                 parsedSequence = steps.map(step => {
                     const id = step.getAttribute("state");
                     const valStr = stateDict[id] || "";
@@ -119,13 +119,18 @@
 
                     const rgOpen = !valStr.includes("RGA");
                     
+                    // The Clamp vs Float Physics
+                    const vref = v.vr || -7;
+                    // When floating, capacitive feedthrough drops it slightly
+                    const actualSN = rgOpen ? vref : (vref - 0.5); 
+                    
                     return {
                         id: id,
                         timer: step.getAttribute("delay"),
-			// Universal Polarity: Present = Barrier, Missing = Trench
+                        // Universal Polarity: Present = Barrier, Missing = Trench
                         sw: valStr.includes("SWA") ? v.sh : v.sl, 
-                        og: valStr.includes("OGA") ? v.oh : v.ol,
-                        sn: v.vr || -7, // SN is a static baseline for the others to dance around
+                        og: valStr.includes("OGA") ? v.oh : v.ol, 
+                        sn: actualSN, 
                         dg: valStr.includes("DGA") ? v.dh : v.dl, 
                         drain: v.vdrain || -24, 
                         rgOpen: rgOpen,
@@ -173,7 +178,7 @@
             const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
             path.transition(t).attr("d", lineGen(pts));
 
-	    // True Thermodynamic Charge Routing
+            // True Thermodynamic Charge Routing
             // The charge naturally falls to the deepest available well
             let targetX, targetY, opacity = 1;
 
@@ -200,6 +205,7 @@
             chargePacket.transition(t)
                 .attr("transform", `translate(${targetX}, ${targetY})`)
                 .style("opacity", opacity);
+
             // Button state controls
             document.getElementById("prev-btn").disabled = currentState === 0;
             document.getElementById("next-btn").disabled = currentState === parsedSequence.length - 1;
