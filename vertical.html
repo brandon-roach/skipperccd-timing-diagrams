@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>2D Skipper CCD Vertical Transfer</title>
+    <title>Split-Frame Vertical Transfer</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         body {
@@ -13,6 +13,7 @@
             justify-content: center;
             padding-top: 20px;
             margin: 0;
+            padding-bottom: 40px;
         }
 
         .visualizer-container {
@@ -23,10 +24,8 @@
             text-align: center;
         }
 
-        h2 { margin-top: 0; }
-
         .controls {
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -56,26 +55,21 @@
             min-width: 120px;
         }
 
-        /* Silicon Topography Classes */
-        .gate-high {
-            fill: #dee2e6; /* Shallow barrier (light gray) */
-            stroke: #adb5bd;
-        }
+        .gate-high { fill: #dee2e6; stroke: #adb5bd; } /* Barrier */
+        .gate-low { fill: #c5e1a5; stroke: #7cb342; }  /* Trench */
+        .charge-packet { fill: #e63946; }
 
-        .gate-low {
-            fill: #c5e1a5; /* Deep trench (light green) */
-            stroke: #7cb342;
-        }
-
-        .charge-packet {
-            fill: #e63946; /* Positive Holes */
+        .equator-line {
+            stroke: #dc3545;
+            stroke-width: 3;
+            stroke-dasharray: 6 4;
         }
     </style>
 </head>
 <body>
 
     <div class="visualizer-container">
-        <h2>Vertical Clocking (3-Phase)</h2>
+        <h2>Symmetric Split-Frame Readout</h2>
         <div class="controls">
             <button id="btn-prev" disabled>◀ Previous</button>
             <span id="state-label" class="state-badge">Loading XML...</span>
@@ -85,54 +79,79 @@
     </div>
 
     <script>
-        const width = 450;
-        const height = 650;
-        const cols = 3;
-        const rows = 3;
+        const width = 500;
+        const height = 900;
+        const cols = 2;
+        const rowsPerHalf = 3;
 
         // Geometric definitions
         const pixelWidth = width / cols;
-        const pixelHeight = (height - 120) / rows; // Leave room for TG and H-Reg
+        const pixelHeight = 75; 
         const gateHeight = pixelHeight / 3;
-
+        
         let sequence = [];
         let currentStateIndex = 0;
 
-        // Setup SVG
         const svg = d3.select("#vertical-canvas")
             .append("svg")
             .attr("width", width)
             .attr("height", height);
 
-        // Draw the Grid Elements (Background)
         const gridData = [];
-        for (let r = 0; r < rows; r++) {
+        
+        // --- TOP HALF (Readout moves UP) ---
+        // Physical Layout is INVERTED: V3A, V2C, V1A
+        const topHy = 0;
+        const topTGy = 60;
+        gridData.push({ type: 'H_TOP', half: 'top', x: 0, y: topHy, w: width, h: 60 });
+        gridData.push({ type: 'TG_TOP', half: 'top', x: 0, y: topTGy, w: width, h: 40 });
+        
+        let startY = 100;
+        for (let r = 0; r < rowsPerHalf; r++) {
             for (let c = 0; c < cols; c++) {
-                let yOffset = r * pixelHeight;
+                let yOffset = startY + (r * pixelHeight);
                 let xOffset = c * pixelWidth;
-                gridData.push({ type: 'V1', row: r, col: c, x: xOffset, y: yOffset, h: gateHeight });
-                gridData.push({ type: 'V2', row: r, col: c, x: xOffset, y: yOffset + gateHeight, h: gateHeight });
-                gridData.push({ type: 'V3', row: r, col: c, x: xOffset, y: yOffset + (gateHeight * 2), h: gateHeight });
+                gridData.push({ type: 'V3A', half: 'top', row: r, col: c, x: xOffset, y: yOffset, h: gateHeight });
+                gridData.push({ type: 'V2C', half: 'top', row: r, col: c, x: xOffset, y: yOffset + gateHeight, h: gateHeight });
+                gridData.push({ type: 'V1A', half: 'top', row: r, col: c, x: xOffset, y: yOffset + (gateHeight * 2), h: gateHeight });
             }
         }
 
-        // Add Transfer Gate (TG) and Horizontal Register (H-Reg)
-        const tgY = rows * pixelHeight;
-        const hY = tgY + 40;
-        gridData.push({ type: 'TG', row: 'bottom', col: 0, x: 0, y: tgY, w: width, h: 40 });
-        gridData.push({ type: 'H',  row: 'bottom', col: 0, x: 0, y: hY, w: width, h: 60 });
+        // --- THE EQUATOR ---
+        const equatorY = startY + (rowsPerHalf * pixelHeight) + 10;
+        svg.append("line").attr("x1", 0).attr("x2", width).attr("y1", equatorY).attr("y2", equatorY).attr("class", "equator-line");
+        svg.append("text").attr("x", width/2).attr("y", equatorY + 4).attr("text-anchor", "middle").style("font-size", "10px").style("fill", "#dc3545").style("background", "white").text("SILICON EQUATOR");
 
+        // --- BOTTOM HALF (Readout moves DOWN) ---
+        // Physical Layout is STANDARD: V1B, V2C, V3B
+        startY = equatorY + 10;
+        for (let r = 0; r < rowsPerHalf; r++) {
+            for (let c = 0; c < cols; c++) {
+                let yOffset = startY + (r * pixelHeight);
+                let xOffset = c * pixelWidth;
+                gridData.push({ type: 'V1B', half: 'bottom', row: r, col: c, x: xOffset, y: yOffset, h: gateHeight });
+                gridData.push({ type: 'V2C', half: 'bottom', row: r, col: c, x: xOffset, y: yOffset + gateHeight, h: gateHeight });
+                gridData.push({ type: 'V3B', half: 'bottom', row: r, col: c, x: xOffset, y: yOffset + (gateHeight * 2), h: gateHeight });
+            }
+        }
+
+        const botTGy = startY + (rowsPerHalf * pixelHeight);
+        const botHy = botTGy + 40;
+        gridData.push({ type: 'TG_BOT', half: 'bottom', x: 0, y: botTGy, w: width, h: 40 });
+        gridData.push({ type: 'H_BOT', half: 'bottom', x: 0, y: botHy, w: width, h: 60 });
+
+        // Draw Gates
         const gates = svg.selectAll(".gate")
             .data(gridData)
             .enter()
             .append("rect")
-            .attr("class", "gate gate-high") // Default to high before load
+            .attr("class", "gate gate-high")
             .attr("x", d => d.x)
             .attr("y", d => d.y)
             .attr("width", d => d.w || pixelWidth)
             .attr("height", d => d.h);
 
-        // Add Gate Labels
+        // Gate Labels
         svg.selectAll(".label")
             .data(gridData)
             .enter()
@@ -140,16 +159,22 @@
             .attr("x", d => d.x + (d.w || pixelWidth) / 2)
             .attr("y", d => d.y + d.h / 2 + 4)
             .attr("text-anchor", "middle")
-            .style("font-size", "12px")
+            .style("font-size", "11px")
             .style("font-family", "monospace")
             .style("fill", "#555")
-            .text(d => d.type === 'TG' ? "Transfer Gate (TG)" : d.type === 'H' ? "Horizontal Register" : d.type);
+            .text(d => {
+                if(d.type === 'H_TOP') return "TOP AMPLIFIER";
+                if(d.type === 'H_BOT') return "BOTTOM AMPLIFIER";
+                if(d.type === 'TG_TOP' || d.type === 'TG_BOT') return "Transfer Gate";
+                return d.type;
+            });
 
-        // Initialize Charge Packets (One per pixel)
+        // Initialize Charge Packets
         const charges = [];
-        for (let r = 0; r < rows; r++) {
+        for (let r = 0; r < rowsPerHalf; r++) {
             for (let c = 0; c < cols; c++) {
-                charges.push({ id: `charge-${r}-${c}`, row: r, col: c });
+                charges.push({ id: `t-charge-${r}-${c}`, half: 'top', row: r, col: c });
+                charges.push({ id: `b-charge-${r}-${c}`, half: 'bottom', row: r, col: c });
             }
         }
 
@@ -157,10 +182,8 @@
             .data(charges)
             .enter()
             .append("g")
-            .attr("class", "charge-group")
-            .attr("transform", d => `translate(${(d.col * pixelWidth) + (pixelWidth / 2)}, ${(d.row * pixelHeight) + (gateHeight * 1.5)})`); // Initial default position
+            .attr("class", "charge-group");
 
-        // Draw a cluster of 3 "holes" to represent the packet
         chargeGroup.each(function() {
             const g = d3.select(this);
             g.append("circle").attr("cx", -6).attr("cy", -6).attr("r", 5).attr("class", "charge-packet");
@@ -169,54 +192,44 @@
         });
 
         // The dynamic file loader
-        // The dynamic file loader
         async function loadSequencerData() {
             try {
-                // Fetch the XML file
                 const response = await fetch('sequencer_simple_qis.xml');
                 if (!response.ok) throw new Error("Could not load XML file.");
                 const xmlText = await response.text();
-
-                // THE FIX: Wrap the raw text in a single root element so the browser parser doesn't panic
                 const safeXmlText = `<root>${xmlText}</root>`;
 
-                // Parse the sanitized XML string into a navigable DOM object
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(safeXmlText, "text/xml");
-                // Build a dictionary of all state definitions
+
                 const stateDict = {};
                 const stateNodes = xmlDoc.querySelectorAll("state");
                 stateNodes.forEach(node => {
                     const name = node.getAttribute("name");
                     const val = node.getAttribute("val");
-                    if (name && val) {
-                        stateDict[name] = val;
-                    }
+                    if (name && val) stateDict[name] = val;
                 });
 
-                // Extract the vertical recipe
                 const verticalRecipe = xmlDoc.querySelector("recipe[name='vertical']");
-                if (!verticalRecipe) throw new Error("Could not find <recipe name='vertical'> in XML.");
-                
                 const steps = verticalRecipe.querySelectorAll("step");
                 
-                // Decode the thermodynamics dynamically
                 steps.forEach(step => {
                     const stateName = step.getAttribute("state");
                     const bitString = stateDict[stateName] || "";
 
-                    // Active-High Logic mapping
+                    // Dynamically map both A and B logic from the XML
                     sequence.push({
                         id: stateName,
-                        v1: (bitString.includes("V1A") || bitString.includes("V1B")) ? "high" : "low",
-                        v2: bitString.includes("V2C") ? "high" : "low",
-                        v3: (bitString.includes("V3A") || bitString.includes("V3B")) ? "high" : "low",
+                        v1a: bitString.includes("V1A") ? "high" : "low",
+                        v1b: bitString.includes("V1B") ? "high" : "low",
+                        v2c: bitString.includes("V2C") ? "high" : "low",
+                        v3a: bitString.includes("V3A") ? "high" : "low",
+                        v3b: bitString.includes("V3B") ? "high" : "low",
                         tg: (bitString.includes("TGA") || bitString.includes("TGB")) ? "high" : "low",
                         h:  (bitString.includes("H1A") || bitString.includes("H2C") || bitString.includes("H3A")) ? "high" : "low" 
                     });
                 });
 
-                // Start the visualizer
                 if(sequence.length > 0) {
                     document.getElementById("btn-prev").disabled = false;
                     document.getElementById("btn-next").disabled = false;
@@ -232,61 +245,71 @@
 
         function updateViz() {
             if(sequence.length === 0) return; 
-            
             const state = sequence[currentStateIndex];
             d3.select("#state-label").text(state.id);
 
-            // 1. Update Gate Voltages (Colors)
+            // 1. Update Gate Voltages
             gates.attr("class", d => {
-                if (d.type === 'V1') return `gate gate-${state.v1}`;
-                if (d.type === 'V2') return `gate gate-${state.v2}`;
-                if (d.type === 'V3') return `gate gate-${state.v3}`;
-                if (d.type === 'TG') return `gate gate-${state.tg}`;
-                if (d.type === 'H')  return `gate gate-${state.h}`;
+                if (d.type === 'V1A') return `gate gate-${state.v1a}`;
+                if (d.type === 'V1B') return `gate gate-${state.v1b}`;
+                if (d.type === 'V2C') return `gate gate-${state.v2c}`;
+                if (d.type === 'V3A') return `gate gate-${state.v3a}`;
+                if (d.type === 'V3B') return `gate gate-${state.v3b}`;
+                if (d.type.includes('TG')) return `gate gate-${state.tg}`;
+                if (d.type.includes('H'))  return `gate gate-${state.h}`;
             });
 
-            // 2. Update Charge Routing
+            // 2. Physics-Based Symmetrical Charge Routing
             chargeGroup.transition().duration(400).ease(d3.easeCubicInOut)
                 .attr("transform", d => {
                     let targetX = (d.col * pixelWidth) + (pixelWidth / 2);
                     let targetY;
-                    let currentPixelBaseY = d.row * pixelHeight;
-                    let nextPixelBaseY = (d.row + 1) * pixelHeight;
 
-                    // Dynamic Topographical wave routing based on physical gate states
-                    if (state.v2 === "low" && state.v3 === "high") {
-                        targetY = currentPixelBaseY + (gateHeight * 1.5); // Centered in V2
-                    } else if (state.v2 === "low" && state.v3 === "low") {
-                        targetY = currentPixelBaseY + (gateHeight * 2);   // Spreading V2-V3
-                    } else if (state.v2 === "high" && state.v3 === "low" && state.v1 === "high") {
-                        targetY = currentPixelBaseY + (gateHeight * 2.5); // Squeezed in V3
-                    } else if (state.v3 === "low" && state.v1 === "low") { 
-                        if (d.row === rows - 1) {
-                            targetY = tgY + 20; // Bottom row spreading to TG
-                        } else {
-                            targetY = currentPixelBaseY + (gateHeight * 3); // Spreading V3 to V1(next)
-                        }
-                    } else if (state.v3 === "high" && state.v1 === "low") {
-                        if (d.row === rows - 1) {
-                            targetY = tgY + 20; // Bottom row trapped in TG
-                        } else {
-                            targetY = nextPixelBaseY + (gateHeight * 0.5); // Squeezed in V1(next)
-                        }
-                    } else if (state.v1 === "low" && state.v2 === "low") {
-                        if (d.row === rows - 1) {
-                            targetY = hY + 30; // Bottom row dumped into H-Reg
-                        } else {
-                            targetY = nextPixelBaseY + gateHeight; // Spreading V1(next) to V2(next)
-                        }
-                    } else {
-                         // Fallback logic
-                         targetY = currentPixelBaseY + gateHeight; 
+                    if (d.half === 'top') {
+                        // TOP HALF: Moves UP (Y decreases)
+                        let baseTopY = 100 + (d.row * pixelHeight);
+                        if (state.v2c === "low" && state.v3a === "high") { targetY = baseTopY + (gateHeight * 1.5); } // V2C
+                        else if (state.v2c === "low" && state.v3a === "low") { targetY = baseTopY + (gateHeight * 1.0); } // V2C-V3A
+                        else if (state.v2c === "high" && state.v3a === "low" && state.v1a === "high") { targetY = baseTopY + (gateHeight * 0.5); } // V3A
+                        else if (state.v3a === "low" && state.v1a === "low") { 
+                            if (d.row === 0) targetY = topTGy + 20; // Dump to Top TG
+                            else targetY = baseTopY + (gateHeight * 0.0); // V3A-V1A(prev)
+                        } 
+                        else if (state.v3a === "high" && state.v1a === "low") {
+                            if (d.row === 0) targetY = topTGy + 20; // Trapped in Top TG
+                            else targetY = baseTopY - (gateHeight * 0.5); // V1A(prev)
+                        } 
+                        else if (state.v1a === "low" && state.v2c === "low") {
+                            if (d.row === 0) targetY = topHy + 30; // Dump to Top Amp
+                            else targetY = baseTopY - gateHeight; // V1A(prev)-V2C(prev)
+                        } 
+                        else { targetY = baseTopY + (gateHeight * 1.5); }
+                    } 
+                    else {
+                        // BOTTOM HALF: Moves DOWN (Y increases)
+                        let baseBotY = equatorY + 10 + (d.row * pixelHeight);
+                        let nextBotY = baseBotY + pixelHeight;
+                        if (state.v2c === "low" && state.v3b === "high") { targetY = baseBotY + (gateHeight * 1.5); } // V2C
+                        else if (state.v2c === "low" && state.v3b === "low") { targetY = baseBotY + (gateHeight * 2.0); } // V2C-V3B
+                        else if (state.v2c === "high" && state.v3b === "low" && state.v1b === "high") { targetY = baseBotY + (gateHeight * 2.5); } // V3B
+                        else if (state.v3b === "low" && state.v1b === "low") { 
+                            if (d.row === rowsPerHalf - 1) targetY = botTGy + 20; // Dump to Bot TG
+                            else targetY = baseBotY + (gateHeight * 3.0); // V3B-V1B(next)
+                        } 
+                        else if (state.v3b === "high" && state.v1b === "low") {
+                            if (d.row === rowsPerHalf - 1) targetY = botTGy + 20; // Trapped in Bot TG
+                            else targetY = nextBotY + (gateHeight * 0.5); // V1B(next)
+                        } 
+                        else if (state.v1b === "low" && state.v2c === "low") {
+                            if (d.row === rowsPerHalf - 1) targetY = botHy + 30; // Dump to Bot Amp
+                            else targetY = nextBotY + gateHeight; // V1B(next)-V2C(next)
+                        } 
+                        else { targetY = baseBotY + (gateHeight * 1.5); }
                     }
                     return `translate(${targetX}, ${targetY})`;
                 });
         }
 
-        // Button Listeners
         d3.select("#btn-next").on("click", () => {
             if(sequence.length === 0) return;
             currentStateIndex = (currentStateIndex + 1) % sequence.length;
@@ -299,7 +322,6 @@
             updateViz();
         });
 
-        // Initialize by loading the XML
         loadSequencerData();
     </script>
 </body>
