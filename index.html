@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skipper CCD Digital Appendix</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            max-width: 800px;
+            margin: 4rem auto;
+            padding: 0 2rem;
+            line-height: 1.6;
+        }
+        h1 {
+            border-bottom: 2px solid #0056b3;
+            padding-bottom: 10px;
+            color: #1a1a1a;
+        }
+        .directory-list {
+            list-style: none;
+            padding: 0;
+        }
+        .directory-item {
+            background: white;
+            margin-bottom: 15px;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border-left: 4px solid #0056b3;
+            transition: transform 0.2s;
+        }
+        .directory-item:hover {
+            transform: translateX(5px);
+        }
+        .directory-item a {
+            text-decoration: none;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #0056b3;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .directory-item a:hover {
+            text-decoration: underline;
+        }
+        .description {
+            margin: 0;
+            color: #666;
+            font-size: 0.95rem;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Skipper CCD Interactive Visualizations</h1>
+    <p>A digital appendix of solid-state physics and timing architecture for high-level readout systems.</p>
+
+    <ul class="directory-list">
+        <li class="directory-item">
+            <a href="skipper_potential.html">1. p-Channel Output Stage Potential</a>
+            <p class="description">An interactive 1D potential energy diagram demonstrating the non-destructive charge transfer sequence and static Output Gate firewall.</p>
+        </li>
+
+        <li class="directory-item">
+            <a href="#">2. CDS Integrator Timing (Coming Soon)</a>
+            <p class="description">Digital logic analyzer view of the correlated double sampling triggers.</p>
+        </li>
+    </ul>
+
+</body>
+</html>
