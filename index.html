@@ -52,20 +52,20 @@
         let parsedSequence = [];
         let currentState = 0;
 
-        // SVG Setup (Expanded Y-axis to show the deep drain)
+        // Expanded Y-axis to comfortably fit the -24V drain
         const margin = {top: 40, right: 30, bottom: 40, left: 60};
         const width = 800 - margin.left - margin.right;
-        const height = 400 - margin.top - margin.bottom;
+        const height = 450 - margin.top - margin.bottom;
         const gates = ['SW', 'OG', 'Sense Node', 'RG', 'Drain'];
         const sectionWidth = width / gates.length;
-        const yScale = d3.scaleLinear().domain([8, -14]).range([0, height]);
+        const yScale = d3.scaleLinear().domain([8, -26]).range([0, height]);
 
         const svg = d3.select("#viz").append("svg")
             .attr("width", width + margin.left + margin.right)
             .attr("height", height + margin.top + margin.bottom)
             .append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-        const yTicks = d3.range(8, -15, -2);
+        const yTicks = d3.range(8, -27, -4);
         svg.selectAll(".grid-line").data(yTicks).enter().append("line").attr("class", "grid-line").attr("x1", 0).attr("x2", width).attr("y1", d => yScale(d)).attr("y2", d => yScale(d));
         svg.selectAll(".axis-text").data(yTicks).enter().append("text").attr("class", "axis-text").attr("x", -10).attr("y", d => yScale(d) + 4).attr("text-anchor", "end").text(d => `${d}V`);
         svg.selectAll(".gate-label").data(gates).enter().append("text").attr("class", "gate-label").attr("x", (d, i) => (i * sectionWidth) + (sectionWidth / 2)).attr("y", -15).text(d => d);
@@ -87,7 +87,7 @@
                 const xmlText = await xmlResponse.text();
                 const safeXmlText = `<root>${xmlText}</root>`;
 
-                // 1. Double-Regex Parse Bash Voltages (Catches 'sh=-3' AND 'lta set vdrain -24')
+                // Regex Parse Bash Voltages
                 const v = {};
                 const regex1 = /([a-z0-9_]+)=([-0-9.]+)/gi;
                 const regex2 = /set\s+([a-z0-9_]+)\s+([-0-9.]+)/gi;
@@ -95,7 +95,7 @@
                 while ((match = regex1.exec(bashText)) !== null) { v[match[1]] = parseFloat(match[2]); }
                 while ((match = regex2.exec(bashText)) !== null) { v[match[1]] = parseFloat(match[2]); }
 
-                // 2. Parse XML DOM
+                // Parse XML DOM
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(safeXmlText, "text/xml");
                 if (xmlDoc.querySelector("parsererror")) throw new Error("XML formatting error.");
@@ -107,12 +107,11 @@
 
                 const steps = Array.from(xmlDoc.querySelectorAll("recipe[name='skipper'] step"));
                 
-                // 3. Map Logic
+                // Map Logic
                 parsedSequence = steps.map(step => {
                     const id = step.getAttribute("state");
                     const valStr = stateDict[id] || "";
                     
-                    // Parse ADC Status
                     const isHD1 = valStr.includes("HD1");
                     const isHD2 = valStr.includes("HD2");
                     let adcTxt = "ADC Inactive";
@@ -120,7 +119,13 @@
                     if (isHD1) { adcTxt = "HD1 (Pedestal) Active"; adcActive = true; }
                     if (isHD2) { adcTxt = "HD2 (Signal) Active"; adcActive = true; }
 
-                    // Intelligent Charge Tracking
+                    // Determine if Reset Gate is Open (Missing RGA = Open)
+                    const rgIsOpen = !valStr.includes("RGA");
+                    const actualDrain = v.vdrain || -24;
+                    
+                    // THE CLAMP: If RG is open, Sense Node snaps to Drain voltage.
+                    const actualSN = rgIsOpen ? actualDrain : -6;
+
                     let chargeLoc = "sn";
                     if (id.includes("8B") || id === "STATE_8") chargeLoc = "incoming";
                     else if (id.includes("8C") || id.includes("9")) chargeLoc = "sw";
@@ -132,9 +137,9 @@
                         timer: step.getAttribute("delay"),
                         sw: valStr.includes("SWA") ? v.sl : v.sh,
                         og: valStr.includes("OGA") ? v.ol : v.oh,
-                        rg: valStr.includes("RGA") ? v.rl : v.rh,
-                        sn: -6, 
-                        drain: v.vdrain || -14, // Fallback to deep well if missing
+                        rg: valStr.includes("RGA") ? v.rh : v.rl, 
+                        sn: actualSN, 
+                        drain: actualDrain, 
                         adcTxt: adcTxt,
                         adcActive: adcActive,
                         chargeLoc: chargeLoc
@@ -159,7 +164,6 @@
             const state = parsedSequence[currentState];
             const t = d3.transition().duration(500);
 
-            // Update DOM
             document.getElementById("state-name").innerText = state.id;
             document.getElementById("status-msg").innerHTML = `Executing Timer: <strong>${state.timer}</strong>`;
             
@@ -167,19 +171,17 @@
             badge.innerText = state.adcTxt;
             badge.className = state.adcActive ? "adc-badge adc-active" : "adc-badge adc-inactive";
 
-            // Draw Potential Line
             const pts = [
                 {x: 0, y: state.sw}, {x: sectionWidth, y: state.sw},
                 {x: sectionWidth, y: state.og}, {x: sectionWidth * 2, y: state.og},
                 {x: sectionWidth * 2, y: state.sn}, {x: sectionWidth * 3, y: state.sn},
                 {x: sectionWidth * 3, y: state.rg}, {x: sectionWidth * 4, y: state.rg},
-                {x: sectionWidth * 4, y: Math.max(state.drain, -14)}, {x: width, y: Math.max(state.drain, -14)}
+                {x: sectionWidth * 4, y: state.drain}, {x: width, y: state.drain}
             ];
 
             const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
             path.transition(t).attr("d", lineGen(pts));
 
-            // Animate Charge Packet
             let targetX, targetY, opacity = 1;
             if (state.chargeLoc === "incoming") {
                 targetX = sectionWidth * 0.5; targetY = yScale(-2.5); opacity = 0;
@@ -195,7 +197,6 @@
                 .attr("transform", `translate(${targetX}, ${targetY})`)
                 .style("opacity", opacity);
 
-            // Update Buttons
             document.getElementById("prev-btn").disabled = currentState === 0;
             document.getElementById("next-btn").disabled = currentState === parsedSequence.length - 1;
         }
