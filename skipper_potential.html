@@ -127,10 +127,8 @@
                     return {
                         id: id,
                         timer: step.getAttribute("delay"),
-			// SW is Active-Low (Present = Trench, Missing = Barrier)
-                        sw: valStr.includes("SWA") ? v.sl : v.sh, 
-                        
-                        // OG is Active-High (Present = Barrier, Missing = Trench)
+			
+                        sw: valStr.includes("SWA") ? v.sh : v.sl,
                         og: valStr.includes("OGA") ? v.oh : v.ol,
                         sn: actualSN, 
                         dg: valStr.includes("DGA") ? v.dh : v.dl, 
