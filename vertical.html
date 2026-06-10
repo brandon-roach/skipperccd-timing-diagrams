@@ -95,64 +95,149 @@
         const gateHeight = pixelHeight / 3;
 
         // The 6-step vertical sequence from your XML
-        const sequence = [
-            { id: "STATE_11", v1: "high", v2: "low",  v3: "high", tg: "low",  h: "high" },
-            { id: "STATE_12", v1: "high", v2: "low",  v3: "low",  tg: "low",  h: "high" },
-            { id: "STATE_13", v1: "high", v2: "high", v3: "low",  tg: "low",  h: "high" },
-            { id: "STATE_14", v1: "low",  v2: "high", v3: "low",  tg: "low",  h: "high" },
-            { id: "STATE_15", v1: "low",  v2: "high", v3: "high", tg: "low",  h: "high" },
-            { id: "STATE_16", v1: "low",  v2: "low",  v3: "high", tg: "high", h: "low"  }
-        ];
-
+let sequence = [];
         let currentStateIndex = 0;
 
-        // Setup SVG
+        // The dynamic file loader
+        async function loadSequencerData() {
+            try {
+                // 1. Fetch the XML file (Requires a local web server to bypass CORS)
+                const response = await fetch('sequencer_simple_qis.xml');
+                if (!response.ok) throw new Error("Could not load XML file. Are you running a local web server?");
+                const xmlText = await response.text();
+
+                // 2. Parse the XML string into a navigable DOM object
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+
+                // 3. Build a dictionary of all state definitions
+                const stateDict = {};
+                const stateNodes = xmlDoc.querySelectorAll("state");
+                stateNodes.forEach(node => {
+                    const name = node.getAttribute("name");
+                    const val = node.getAttribute("val");
+                    if (name && val) {
+                        stateDict[name] = val;
+                    }
+                });
+
+                // 4. Extract the vertical recipe
+                const verticalRecipe = xmlDoc.querySelector("recipe[name='vertical']");
+                if (!verticalRecipe) throw new Error("Could not find <recipe name='vertical'> in XML.");
+                
+                const steps = verticalRecipe.querySelectorAll("step");
+                
+                // 5. Decode the thermodynamics dynamically
+                steps.forEach(step => {
+                    const stateName = step.getAttribute("state");
+                    const bitString = stateDict[stateName] || "";
+
+                    // Active-High Logic: If the bit is present, it's a "high" barrier.
+                    // If the bit is missing, it drops into a "low" trench.
+                    sequence.push({
+                        id: stateName,
+                        v1: (bitString.includes("V1A") || bitString.includes("V1B")) ? "high" : "low",
+                        v2: bitString.includes("V2C") ? "high" : "low",
+                        v3: (bitString.includes("V3A") || bitString.includes("V3B")) ? "high" : "low",
+                        tg: (bitString.includes("TGA") || bitString.includes("TGB")) ? "high" : "low",
+                        h:  (bitString.includes("H1A") || bitString.includes("H2C") || bitString.includes("H3A")) ? "high" : "low" 
+                    });
+                });
+
+                // 6. Start the visualizer now that data is loaded
+                if(sequence.length > 0) {
+                    updateViz();
+                }
+
+            } catch (error) {
+                console.error("Initialization failed:", error);
+                document.getElementById("state-label").text = "ERROR LOADING XML";
+                document.getElementById("state-label").style.backgroundColor = "#ffcccc";
+            }
+        }
+
+        // Setup SVG canvas
         const svg = d3.select("#vertical-canvas")
             .append("svg")
             .attr("width", width)
             .attr("height", height);
 
-        // Draw the Grid Elements (Background)
-        const gridData = [];
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                let yOffset = r * pixelHeight;
-                let xOffset = c * pixelWidth;
-                gridData.push({ type: 'V1', row: r, col: c, x: xOffset, y: yOffset, h: gateHeight });
-                gridData.push({ type: 'V2', row: r, col: c, x: xOffset, y: yOffset + gateHeight, h: gateHeight });
-                gridData.push({ type: 'V3', row: r, col: c, x: xOffset, y: yOffset + (gateHeight * 2), h: gateHeight });
-            }
+        // ... [KEEP ALL THE SVG DRAWING LOGIC FOR GATES AND CHARGES HERE] ...
+
+        function updateViz() {
+            if(sequence.length === 0) return; // Guard against uninitialized data
+            
+            const state = sequence[currentStateIndex];
+            d3.select("#state-label").text(state.id);
+
+            // 1. Update Gate Voltages (Colors)
+            gates.attr("class", d => {
+                if (d.type === 'V1') return `gate gate-${state.v1}`;
+                if (d.type === 'V2') return `gate gate-${state.v2}`;
+                if (d.type === 'V3') return `gate gate-${state.v3}`;
+                if (d.type === 'TG') return `gate gate-${state.tg}`;
+                if (d.type === 'H')  return `gate gate-${state.h}`;
+            });
+
+            // 2. Update Charge Routing
+            chargeGroup.transition().duration(400).ease(d3.easeCubicInOut)
+                .attr("transform", d => {
+                    let targetX = (d.col * pixelWidth) + (pixelWidth / 2);
+                    let targetY;
+                    let currentPixelBaseY = d.row * pixelHeight;
+                    let nextPixelBaseY = (d.row + 1) * pixelHeight;
+
+                    // Dynamic Topographical wave routing based purely on decoded gate states
+                    // We map the physical conditions rather than hardcoding the state names.
+                    
+                    if (state.v2 === "low" && state.v3 === "high") {
+                        targetY = currentPixelBaseY + (gateHeight * 1.5); // Centered in V2
+                    } else if (state.v2 === "low" && state.v3 === "low") {
+                        targetY = currentPixelBaseY + (gateHeight * 2);   // Spreading V2-V3
+                    } else if (state.v2 === "high" && state.v3 === "low" && state.v1 === "high") {
+                        targetY = currentPixelBaseY + (gateHeight * 2.5); // Squeezed in V3
+                    } else if (state.v3 === "low" && state.v1 === "low") { // V1 is next pixel's V1
+                        if (d.row === rows - 1) {
+                            targetY = tgY + 20; // Bottom row spreading to TG
+                        } else {
+                            targetY = currentPixelBaseY + (gateHeight * 3); // Spreading V3 to V1(next)
+                        }
+                    } else if (state.v3 === "high" && state.v1 === "low") {
+                        if (d.row === rows - 1) {
+                            targetY = tgY + 20; // Bottom row trapped in TG
+                        } else {
+                            targetY = nextPixelBaseY + (gateHeight * 0.5); // Squeezed in V1(next)
+                        }
+                    } else if (state.v1 === "low" && state.v2 === "low") {
+                        if (d.row === rows - 1) {
+                            targetY = hY + 30; // Bottom row dumped into H-Reg!
+                        } else {
+                            targetY = nextPixelBaseY + gateHeight; // Spreading V1(next) to V2(next)
+                        }
+                    } else {
+                         // Default fallback if a state breaks the standard logic
+                         targetY = currentPixelBaseY + gateHeight; 
+                    }
+                    return `translate(${targetX}, ${targetY})`;
+                });
         }
 
-        // Add Transfer Gate (TG) and Horizontal Register (H-Reg)
-        const tgY = rows * pixelHeight;
-        const hY = tgY + 40;
-        gridData.push({ type: 'TG', row: 'bottom', col: 0, x: 0, y: tgY, w: width, h: 40 });
-        gridData.push({ type: 'H',  row: 'bottom', col: 0, x: 0, y: hY, w: width, h: 60 });
+        // Button Listeners
+        d3.select("#btn-next").on("click", () => {
+            if(sequence.length === 0) return;
+            currentStateIndex = (currentStateIndex + 1) % sequence.length;
+            updateViz();
+        });
 
-        const gates = svg.selectAll(".gate")
-            .data(gridData)
-            .enter()
-            .append("rect")
-            .attr("class", "gate gate-high")
-            .attr("x", d => d.x)
-            .attr("y", d => d.y)
-            .attr("width", d => d.w || pixelWidth)
-            .attr("height", d => d.h);
+        d3.select("#btn-prev").on("click", () => {
+            if(sequence.length === 0) return;
+            currentStateIndex = (currentStateIndex - 1 + sequence.length) % sequence.length;
+            updateViz();
+        });
 
-        // Add Gate Labels
-        svg.selectAll(".label")
-            .data(gridData)
-            .enter()
-            .append("text")
-            .attr("x", d => d.x + (d.w || pixelWidth) / 2)
-            .attr("y", d => d.y + d.h / 2 + 4)
-            .attr("text-anchor", "middle")
-            .style("font-size", "12px")
-            .style("font-family", "monospace")
-            .style("fill", "#555")
-            .text(d => d.type === 'TG' ? "Transfer Gate (TG)" : d.type === 'H' ? "Horizontal Register" : d.type);
-
+        // Initialize by loading the XML
+      loadSequencerData();
+      
         // Initialize Charge Packets (One per pixel)
         const charges = [];
         for (let r = 0; r < rows; r++) {
