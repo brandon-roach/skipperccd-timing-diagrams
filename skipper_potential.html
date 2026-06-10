@@ -175,13 +175,11 @@
             const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
             path.transition(t).attr("d", lineGen(pts));
 
-	    // Dynamic Charge Tracking (Explicit State Routing)
-// Dynamic Charge Tracking (The Sloshing Mechanic)
+            // Dynamic Charge Tracking (The Sloshing Mechanic)
             let targetX, targetY, opacity = 1;
 
             if (state.id.includes("8B") || state.id === "STATE_8" || state.id.includes("10RG")) {
                 // First Retreat: Charge is hiding in the Output Gate (-8V).
-                // The Sense Node (-7V) is completely empty for the Pedestal read.
                 targetX = sectionWidth * 1.5; 
                 targetY = yScale(state.og + 0.5);
             } 
@@ -205,6 +203,10 @@
             chargePacket.transition(t)
                 .attr("transform", `translate(${targetX}, ${targetY})`)
                 .style("opacity", opacity);
+
+            // THESE ARE THE LINES THAT GOT DELETED
+            document.getElementById("prev-btn").disabled = currentState === 0;
+            document.getElementById("next-btn").disabled = currentState === parsedSequence.length - 1;
         }
 
         function step(dir) {
