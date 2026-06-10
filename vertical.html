@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2D Skipper CCD Vertical Transfer</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            padding-top: 20px;
+            margin: 0;
+        }
+
+        .visualizer-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        h2 { margin-top: 0; }
+
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+        }
+
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+            background: #0056b3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        button:hover { background: #004494; }
+
+        .state-badge {
+            font-family: monospace;
+            font-size: 1.2em;
+            background: #e9ecef;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            min-width: 100px;
+        }
+
+        /* Silicon Topography Classes */
+        .gate-high {
+            fill: #dee2e6; /* Shallow barrier */
+            stroke: #adb5bd;
+        }
+
+        .gate-low {
+            fill: #c5e1a5; /* Deep trench */
+            stroke: #7cb342;
+        }
+
+        .charge-packet {
+            fill: #e63946; /* Positive Holes */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="visualizer-container">
+        <h2>Vertical Clocking (3-Phase)</h2>
+        <div class="controls">
+            <button id="btn-prev">◀ Previous</button>
+            <span id="state-label" class="state-badge">STATE_11</span>
+            <button id="btn-next">Next ▶</button>
+        </div>
+        <div id="vertical-canvas"></div>
+    </div>
+
+    <script>
+        const width = 450;
+        const height = 650;
+        const cols = 3;
+        const rows = 3;
+
+        // Geometric definitions
+        const pixelWidth = width / cols;
+        const pixelHeight = (height - 120) / rows; // Leave room for TG and H-Reg
+        const gateHeight = pixelHeight / 3;
+
+        // The 6-step vertical sequence from your XML
+        const sequence = [
+            { id: "STATE_11", v1: "high", v2: "low",  v3: "high", tg: "low",  h: "high" },
+            { id: "STATE_12", v1: "high", v2: "low",  v3: "low",  tg: "low",  h: "high" },
+            { id: "STATE_13", v1: "high", v2: "high", v3: "low",  tg: "low",  h: "high" },
+            { id: "STATE_14", v1: "low",  v2: "high", v3: "low",  tg: "low",  h: "high" },
+            { id: "STATE_15", v1: "low",  v2: "high", v3: "high", tg: "low",  h: "high" },
+            { id: "STATE_16", v1: "low",  v2: "low",  v3: "high", tg: "high", h: "low"  }
+        ];
+
+        let currentStateIndex = 0;
+
+        // Setup SVG
+        const svg = d3.select("#vertical-canvas")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        // Draw the Grid Elements (Background)
+        const gridData = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                let yOffset = r * pixelHeight;
+                let xOffset = c * pixelWidth;
+                gridData.push({ type: 'V1', row: r, col: c, x: xOffset, y: yOffset, h: gateHeight });
+                gridData.push({ type: 'V2', row: r, col: c, x: xOffset, y: yOffset + gateHeight, h: gateHeight });
+                gridData.push({ type: 'V3', row: r, col: c, x: xOffset, y: yOffset + (gateHeight * 2), h: gateHeight });
+            }
+        }
+
+        // Add Transfer Gate (TG) and Horizontal Register (H-Reg)
+        const tgY = rows * pixelHeight;
+        const hY = tgY + 40;
+        gridData.push({ type: 'TG', row: 'bottom', col: 0, x: 0, y: tgY, w: width, h: 40 });
+        gridData.push({ type: 'H',  row: 'bottom', col: 0, x: 0, y: hY, w: width, h: 60 });
+
+        const gates = svg.selectAll(".gate")
+            .data(gridData)
+            .enter()
+            .append("rect")
+            .attr("class", "gate gate-high")
+            .attr("x", d => d.x)
+            .attr("y", d => d.y)
+            .attr("width", d => d.w || pixelWidth)
+            .attr("height", d => d.h);
+
+        // Add Gate Labels
+        svg.selectAll(".label")
+            .data(gridData)
+            .enter()
+            .append("text")
+            .attr("x", d => d.x + (d.w || pixelWidth) / 2)
+            .attr("y", d => d.y + d.h / 2 + 4)
+            .attr("text-anchor", "middle")
+            .style("font-size", "12px")
+            .style("font-family", "monospace")
+            .style("fill", "#555")
+            .text(d => d.type === 'TG' ? "Transfer Gate (TG)" : d.type === 'H' ? "Horizontal Register" : d.type);
+
+        // Initialize Charge Packets (One per pixel)
+        const charges = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                charges.push({ id: `charge-${r}-${c}`, row: r, col: c });
+            }
+        }
+
+        const chargeGroup = svg.selectAll(".charge-group")
+            .data(charges)
+            .enter()
+            .append("g")
+            .attr("class", "charge-group");
+
+        // Draw a cluster of 4 "holes" to represent the packet
+        chargeGroup.each(function() {
+            const g = d3.select(this);
+            g.append("circle").attr("cx", -6).attr("cy", -6).attr("r", 5).attr("class", "charge-packet");
+            g.append("circle").attr("cx", 6).attr("cy", -6).attr("r", 5).attr("class", "charge-packet");
+            g.append("circle").attr("cx", 0).attr("cy", 6).attr("r", 5).attr("class", "charge-packet");
+        });
+
+        function updateViz() {
+            const state = sequence[currentStateIndex];
+            d3.select("#state-label").text(state.id);
+
+            // 1. Update Gate Voltages (Colors)
+            gates.attr("class", d => {
+                if (d.type === 'V1') return `gate gate-${state.v1}`;
+                if (d.type === 'V2') return `gate gate-${state.v2}`;
+                if (d.type === 'V3') return `gate gate-${state.v3}`;
+                if (d.type === 'TG') return `gate gate-${state.tg}`;
+                if (d.type === 'H')  return `gate gate-${state.h}`;
+            });
+
+            // 2. Update Charge Routing
+            chargeGroup.transition().duration(400).ease(d3.easeCubicInOut)
+                .attr("transform", d => {
+                    let targetX = (d.col * pixelWidth) + (pixelWidth / 2);
+                    let targetY;
+                    let currentPixelBaseY = d.row * pixelHeight;
+                    let nextPixelBaseY = (d.row + 1) * pixelHeight;
+
+                    // Topographical wave routing
+                    if (state.id === "STATE_11") {
+                        targetY = currentPixelBaseY + (gateHeight * 1.5); // Centered in V2
+                    } else if (state.id === "STATE_12") {
+                        targetY = currentPixelBaseY + (gateHeight * 2);   // Spreading V2-V3
+                    } else if (state.id === "STATE_13") {
+                        targetY = currentPixelBaseY + (gateHeight * 2.5); // Squeezed in V3
+                    } else if (state.id === "STATE_14") {
+                        if (d.row === rows - 1) {
+                            targetY = tgY + 20; // Bottom row spreading to TG
+                        } else {
+                            targetY = currentPixelBaseY + (gateHeight * 3); // Spreading V3 to V1(next)
+                        }
+                    } else if (state.id === "STATE_15") {
+                        if (d.row === rows - 1) {
+                            targetY = tgY + 20; // Bottom row trapped in TG
+                        } else {
+                            targetY = nextPixelBaseY + (gateHeight * 0.5); // Squeezed in V1(next)
+                        }
+                    } else if (state.id === "STATE_16") {
+                        if (d.row === rows - 1) {
+                            targetY = hY + 30; // Bottom row dumped into H-Reg!
+                        } else {
+                            targetY = nextPixelBaseY + gateHeight; // Spreading V1(next) to V2(next)
+                        }
+                    }
+                    return `translate(${targetX}, ${targetY})`;
+                });
+        }
+
+        // Button Listeners
+        d3.select("#btn-next").on("click", () => {
+            currentStateIndex = (currentStateIndex + 1) % sequence.length;
+            updateViz();
+        });
+
+        d3.select("#btn-prev").on("click", () => {
+            currentStateIndex = (currentStateIndex - 1 + sequence.length) % sequence.length;
+            updateViz();
+        });
+
+        // Initialize
+        updateViz();
+    </script>
+</body>
+</html>
