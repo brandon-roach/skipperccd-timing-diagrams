@@ -178,34 +178,32 @@
             const lineGen = d3.line().x(d => d.x).y(d => yScale(d.y));
             path.transition(t).attr("d", lineGen(pts));
 
-            // True Thermodynamic Charge Routing
-            // The charge naturally falls to the deepest available well
+	    // Topographical Charge Routing
+            // Respects physical barriers and locked gates
             let targetX, targetY, opacity = 1;
 
-            const activeRegion = [
-                { id: "sw", val: state.sw, x: sectionWidth * 0.5 },
-                { id: "og", val: state.og, x: sectionWidth * 1.5 },
-                { id: "sn", val: state.sn, x: sectionWidth * 2.5 }
-            ];
-            
-            // Sort to find the most negative potential
-            activeRegion.sort((a, b) => a.val - b.val);
-            let deepest = activeRegion[0];
-
             if (state.dg < -5) { 
-                // The Flush
+                // The Trapdoor Flush (Drain)
                 targetX = sectionWidth * 4.5; 
                 targetY = yScale(state.drain); 
                 opacity = 0;
+            } else if (state.id.includes("10A") || state.id.includes("10B") || state.id.includes("10RG")) {
+                // Locked on the Sense Node behind the OG barrier
+                targetX = sectionWidth * 2.5; 
+                targetY = yScale(state.sn + 0.5);
+            } else if (state.og < state.sw) {
+                // The Holding Pen (OG is deeper than SW)
+                targetX = sectionWidth * 1.5; 
+                targetY = yScale(state.og + 0.5);
             } else {
-                targetX = deepest.x; 
-                targetY = yScale(deepest.val + 0.5);
+                // Safely resting in the deep Summing Well
+                targetX = sectionWidth * 0.5; 
+                targetY = yScale(state.sw + 0.5);
             }
 
             chargePacket.transition(t)
                 .attr("transform", `translate(${targetX}, ${targetY})`)
                 .style("opacity", opacity);
-
             // Button state controls
             document.getElementById("prev-btn").disabled = currentState === 0;
             document.getElementById("next-btn").disabled = currentState === parsedSequence.length - 1;
